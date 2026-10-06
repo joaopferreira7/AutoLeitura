@@ -1,0 +1,10 @@
+data/
+runs/
+weights/*.pt
+*.db
+*.zip
+__pycache__/
+.venv/
+yolov8*.pt
+yolo11*.pt
+check.png
