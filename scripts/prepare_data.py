@@ -24,7 +24,7 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from autoleitura import config  # noqa: E402
-from autoleitura.preprocess import crop_box  # noqa: E402
+from autoleitura.preprocess import crop_box, limit_size  # noqa: E402
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 SPLIT_ALIASES = {"training": "train", "train": "train", "validation": "val", "valid": "val",
@@ -151,12 +151,19 @@ def write_datasets(samples, prefix, append):
             x1, y1, x2, y2 = s["box"]
             cx, cy, bw, bh = (x1 + x2) / 2 / w, (y1 + y2) / 2 / h, (x2 - x1) / w, (y2 - y1) / h
 
-            shutil.copy(s["image"], config.DET_DIR / "images" / s["split"] / f"{name}{s['image'].suffix.lower()}")
+            # Fotos de celular chegam a 4160 px; o YOLO treina em 640, e decodificar JPGs enormes a cada
+            # época vira gargalo (o Colab tem só 2 núcleos). Os rótulos são normalizados e não mudam.
+            # 1600 px é o mesmo limite que o pipeline usa na inferência (preprocess.limit_size).
+            small, _ = limit_size(img, max_side=1600)
+            cv2.imwrite(str(config.DET_DIR / "images" / s["split"] / f"{name}.jpg"), small,
+                        [cv2.IMWRITE_JPEG_QUALITY, 92])
             (config.DET_DIR / "labels" / s["split"] / f"{name}.txt").write_text(
                 f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n")
 
             cv2.imwrite(str(config.REC_DIR / "images" / f"{name}.png"), crop_box(img, s["box"]))
             writer.writerow([f"{name}.png", s["reading"], s["split"], s["image"].name])
+            if (i + 1) % 200 == 0:
+                print(f"  {i + 1}/{len(samples)} imagens processadas")
 
     (config.DET_DIR / "data.yaml").write_text(
         f"path: {config.DET_DIR.as_posix()}\ntrain: images/train\nval: images/val\ntest: images/test\n"
