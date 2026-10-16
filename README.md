@@ -61,10 +61,13 @@ python evaluate.py --errors erros_teste.csv
 
 ## Dados
 
-- **UFPR-AMR** (principal): 2.000 imagens com split oficial 800/400/800. Os autores liberam o dataset
-  mediante pedido (formulário/licença na página oficial). **Peçam o quanto antes**, porque a liberação pode demorar.
-  O parser (`parse_ufpr_txt`) procura as chaves de posição do contador, leitura e dígitos por padrão;
-  se a versão recebida usar nomes diferentes, basta ajustar essa função.
+- **UFPR-AMR** (principal): 2.000 fotos de medidores de energia da Copel (2340×4160 a 3120×4160 px),
+  com split oficial 800/400/800. Cada foto tem um `.txt` com `camera`, `reading`, `position` (x y w h do contador)
+  e `digit 1..5`. O parser (`parse_ufpr_txt`) foi validado nas 2.000 anotações, incluindo 8 arquivos
+  em que a chave vem com erro de digitação no próprio dataset (`creading`, `qreading`).
+  O link de download é enviado por e-mail pelos autores e é pessoal (licença só para uso acadêmico):
+  **não coloquem o link nem os dados no repositório**. O notebook pede o link na hora.
+  Atenção: o `AMR-Annotations.zip` que vem no mesmo e-mail **não** é o dataset; são só anotações de outros datasets (gás), sem imagens.
 - **Roboflow Universe** (água): use um dataset exportado em *YOLOv8* com classes `0`–`9` (um box por dígito).
   A leitura é montada ordenando os dígitos da esquerda para a direita. Junte com o UFPR-AMR usando `--append`.
 - **Sintético**: `scripts/make_synthetic.py` serve só como teste de fumaça do pipeline. Não usem como resultado do trabalho.
