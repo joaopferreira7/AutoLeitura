@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, Dataset, RandomSampler
 
 from autoleitura import config
 from autoleitura.metrics import evaluate_readings
-from autoleitura.preprocess import to_recognizer_input
+from autoleitura.preprocess import prepare_crop, shrink_crop, to_recognizer_input
 from autoleitura.recognizer import CRNN, ctc_greedy_decode, encode
 
 
@@ -50,17 +50,19 @@ class CropDataset(Dataset):
         with open(config.REC_DIR / "labels.csv", encoding="utf-8") as f:
             self.rows = [r for r in csv.DictReader(f) if r["split"] == split]
         self.train = train
-        self.rng = np.random.default_rng()
 
     def __len__(self):
         return len(self.rows)
 
     def __getitem__(self, i):
         r = self.rows[i]
-        img = cv2.imread(str(config.REC_DIR / "images" / r["arquivo"]))
+        img = shrink_crop(cv2.imread(str(config.REC_DIR / "images" / r["arquivo"])))
         if self.train:
-            img = augment(img, self.rng)
-        return torch.from_numpy(to_recognizer_input(img)), r["leitura"]
+            # gerador novo a cada amostra, semeado pelo torch: cada worker do DataLoader tem
+            # sua própria semente, então as augmentations não se repetem entre workers
+            img = augment(img, np.random.default_rng(torch.randint(0, 2**31, (1,)).item()))
+        # mesmo tratamento da inferência (Recognizer.read)
+        return torch.from_numpy(to_recognizer_input(prepare_crop(img))), r["leitura"]
 
 
 def collate(batch):
@@ -96,8 +98,11 @@ def main():
     # O CTC precisa de alguns milhares de passos para sair do "platô do blank". Com datasets
     # pequenos, cada época sorteia pelo menos --samples-per-epoch recortes (cada um com augmentation diferente).
     sampler = RandomSampler(train_ds, replacement=True, num_samples=max(len(train_ds), args.samples_per_epoch))
-    train_dl = DataLoader(train_ds, args.batch, sampler=sampler, num_workers=args.workers, collate_fn=collate, drop_last=True)
-    val_dl = DataLoader(val_ds, args.batch, num_workers=args.workers, collate_fn=collate)
+    # persistent_workers: no Windows, recriar os processos do DataLoader a cada época custa vários segundos
+    extra = {"persistent_workers": True} if args.workers > 0 else {}
+    train_dl = DataLoader(train_ds, args.batch, sampler=sampler, num_workers=args.workers, collate_fn=collate,
+                          drop_last=True, **extra)
+    val_dl = DataLoader(val_ds, args.batch, num_workers=args.workers, collate_fn=collate, **extra)
 
     model = CRNN().to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
