@@ -5,7 +5,7 @@ import cv2
 
 from . import config
 from .detector import CounterDetector
-from .preprocess import crop_box, deskew, enhance, limit_size
+from .preprocess import crop_box, limit_size
 from .recognizer import Recognizer
 
 
@@ -27,7 +27,7 @@ class AutoLeitura:
                     "warning": "Contador não encontrado na imagem."}
 
         box = tuple(v / scale for v in box)                 # volta para a escala original
-        crop = deskew(enhance(crop_box(img, box)))
+        crop = crop_box(img, box)
         text, rec_conf, digit_confs = self.recognizer.read(crop)
 
         # Pós-processamento: confiança final combina detecção e reconhecimento;

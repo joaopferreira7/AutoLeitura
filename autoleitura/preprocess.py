@@ -1,20 +1,25 @@
 """Pré-processamento com OpenCV (etapas 2 e 4 da arquitetura)."""
+import io
+
 import cv2
 import numpy as np
+from PIL import Image, ImageOps
 
 from . import config
 
 
 def load_image(path_or_bytes):
-    """Lê uma imagem de um caminho ou de bytes (upload da interface) em BGR."""
-    if isinstance(path_or_bytes, (bytes, bytearray)):
-        arr = np.frombuffer(path_or_bytes, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    else:
-        img = cv2.imread(str(path_or_bytes), cv2.IMREAD_COLOR)
-    if img is None:
-        raise ValueError("Não foi possível ler a imagem.")
-    return img
+    """Lê uma imagem de um caminho ou de bytes (upload da interface) em BGR.
+
+    Fotos de celular costumam vir "deitadas", com a rotação só nos metadados EXIF;
+    o exif_transpose aplica essa rotação nos pixels antes de qualquer processamento.
+    """
+    try:
+        src = io.BytesIO(path_or_bytes) if isinstance(path_or_bytes, (bytes, bytearray)) else str(path_or_bytes)
+        pil = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
+    except Exception as e:
+        raise ValueError("Não foi possível ler a imagem.") from e
+    return cv2.cvtColor(np.asarray(pil), cv2.COLOR_RGB2BGR)
 
 
 def enhance(img):
@@ -64,6 +69,21 @@ def deskew(crop):
     m = cv2.getRotationMatrix2D((crop.shape[1] / 2, crop.shape[0] / 2), angle, 1.0)
     return cv2.warpAffine(crop, m, (crop.shape[1], crop.shape[0]),
                           flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
+def shrink_crop(crop, max_width=2 * config.REC_WIDTH):
+    """Reduz o recorte (que pode ter ~1000 px nas fotos originais) para 2x a largura de entrada da CRNN.
+    O CLAHE, o deskew e a augmentation ficam bem mais rápidos e se comportam igual em qualquer resolução."""
+    h, w = crop.shape[:2]
+    if w <= max_width:
+        return crop
+    return cv2.resize(crop, (max_width, max(1, round(h * max_width / w))), interpolation=cv2.INTER_AREA)
+
+
+def prepare_crop(crop):
+    """Tratamento do recorte do contador antes da CRNN. É usado igual no treino e na inferência,
+    para o modelo ver na leitura o mesmo tipo de imagem que viu no treino."""
+    return deskew(enhance(shrink_crop(crop)))
 
 
 def to_recognizer_input(crop):

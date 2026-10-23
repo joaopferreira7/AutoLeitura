@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 from . import config
-from .preprocess import to_recognizer_input
+from .preprocess import prepare_crop, to_recognizer_input
 
 
 def _block(cin, cout, pool):
@@ -62,7 +62,7 @@ def ctc_greedy_decode(log_probs):
 
 
 class Recognizer:
-    """Wrapper de inferência: recorte BGR -> (leitura, confiança, confiança por dígito)."""
+    """Wrapper de inferência: recorte BGR cru do contador -> (leitura, confiança, confiança por dígito)."""
 
     def __init__(self, weights=config.REC_WEIGHTS, device=None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -73,7 +73,7 @@ class Recognizer:
 
     @torch.no_grad()
     def read(self, crop):
-        x = torch.from_numpy(to_recognizer_input(crop))[None].to(self.device)
+        x = torch.from_numpy(to_recognizer_input(prepare_crop(crop)))[None].to(self.device)
         log_probs = self.model(x).log_softmax(2)[0].cpu()
         text, confs = ctc_greedy_decode(log_probs)
         conf = float(np.prod(confs)) if confs else 0.0
