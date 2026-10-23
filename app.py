@@ -61,7 +61,7 @@ def mostrar_alertas(alertas):
         {"erro": st.error, "aviso": st.warning, "info": st.info}[a.nivel](a.mensagem)
 
 
-def escolher_medidor(label="Medidor", key=None):
+def escolher_medidor(label="Medidor", key=None, preferir_com_leituras=False):
     medidores = db.list_medidores(get_db())
     if not medidores:
         st.info("Cadastre um imóvel e um medidor para começar.")
@@ -70,6 +70,8 @@ def escolher_medidor(label="Medidor", key=None):
     ids = [m["id"] for m in medidores]
     por_id = {m["id"]: m for m in medidores}
     padrao = st.session_state.get("medidor_atual")
+    if padrao is None and preferir_com_leituras:      # ex.: na demonstração, abre no medidor com histórico
+        padrao = next((m["id"] for m in medidores if db.list_readings(get_db(), m["id"], limit=1)), None)
     mid = st.selectbox(label, ids, index=ids.index(padrao) if padrao in ids else 0,
                        format_func=lambda i: nome_medidor(por_id[i]), key=key)
     st.session_state.medidor_atual = mid
@@ -171,7 +173,7 @@ def page_nova_leitura():
 
 def page_consumo():
     st.title("📊 Consumo")
-    medidor = escolher_medidor()
+    medidor = escolher_medidor(preferir_com_leituras=True)
     un = consumo.UNIDADE[medidor["tipo"]]
     con = get_db()
     hist = consumo.historico(medidor, db.list_readings(con, medidor["id"]))

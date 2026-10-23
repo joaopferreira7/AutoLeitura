@@ -113,7 +113,7 @@ def delete_medidor(con, medidor_id):
 
 def list_medidores(con, imovel_id=None):
     sql = ("SELECT m.*, i.nome AS imovel FROM medidores m JOIN imoveis i ON i.id = m.imovel_id"
-           + (" WHERE m.imovel_id = ?" if imovel_id else "") + " ORDER BY i.nome, m.tipo, m.id")
+           + (" WHERE m.imovel_id = ?" if imovel_id else "") + " ORDER BY i.nome, m.tipo = 'agua', m.id")
     return [dict(r) for r in con.execute(sql, (imovel_id,) if imovel_id else ())]
 
 
