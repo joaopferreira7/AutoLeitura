@@ -5,6 +5,6 @@ weights/*.pt
 *.zip
 __pycache__/
 .venv/
-yolov8*.pt
-yolo11*.pt
+yolo*.pt
 check.png
+logs/
