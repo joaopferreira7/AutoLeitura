@@ -4,5 +4,9 @@ torchvision>=0.17
 opencv-python-headless>=4.9
 numpy
 pandas
+pillow
 pyyaml
-streamlit>=1.40
+streamlit>=1.45
+fastapi
+uvicorn
+python-multipart
