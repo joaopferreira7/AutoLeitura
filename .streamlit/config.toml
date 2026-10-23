@@ -1,0 +1,8 @@
+[server]
+maxUploadSize = 25          # MB; fotos de celular têm de 2 a 8 MB
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#1a7f5a"
