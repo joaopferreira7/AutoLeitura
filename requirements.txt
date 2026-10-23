@@ -1,6 +1,9 @@
+# PyTorch só de CPU (o app e a nuvem do Streamlit não usam GPU). Para treinar com GPU,
+# instale antes o PyTorch com CUDA (veja pytorch.org) e depois este arquivo.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
 ultralytics>=8.3
-torch>=2.2
-torchvision>=0.17
 opencv-python-headless>=4.9
 numpy
 pandas
@@ -10,4 +13,3 @@ streamlit>=1.45
 fastapi
 uvicorn
 python-multipart
-huggingface_hub
