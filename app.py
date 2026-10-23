@@ -4,13 +4,14 @@
   streamlit run app.py         # só no computador
 """
 import hashlib
+import os
 from datetime import date
 
 import cv2
 import pandas as pd
 import streamlit as st
 
-from autoleitura import config, consumo, db
+from autoleitura import config, consumo, db, demo, pesos
 from autoleitura.preprocess import load_image
 
 st.set_page_config(page_title="AutoLeitura", page_icon="🔢", layout="centered")
@@ -20,9 +21,18 @@ TIPOS = {"energia": "⚡ Energia", "agua": "💧 Água"}
 TARIFA_EXEMPLO = {"energia": (0.90, 0.0), "agua": (6.00, 0.0)}
 
 
+# Na nuvem do Streamlit o código fica em /mount/src e o disco começa vazio a cada reinício:
+# lá o banco já nasce com os imóveis de demonstração (AUTOLEITURA_DEMO=1 faz o mesmo localmente).
+NA_NUVEM = str(config.ROOT).startswith("/mount/src/")
+DEMO = NA_NUVEM or os.environ.get("AUTOLEITURA_DEMO") == "1"
+
+
 @st.cache_resource
 def get_db():
-    return db.connect()
+    con = db.connect()
+    if DEMO:
+        demo.criar_se_vazio(con)
+    return con
 
 
 @st.cache_resource(show_spinner="Carregando os modelos...")
@@ -31,7 +41,19 @@ def get_system():
     return AutoLeitura()
 
 
+@st.cache_resource(show_spinner="Baixando os modelos treinados (só na primeira vez, ~55 MB)...")
+def baixar_pesos():
+    try:
+        pesos.baixar(progresso=lambda _: None)
+        return None
+    except Exception as e:          # sem internet, GitHub fora do ar etc.
+        return str(e)
+
+
 def modelos_prontos():
+    erro = baixar_pesos() if pesos.faltando() else None
+    if erro:
+        st.error(f"Não foi possível baixar os modelos: {erro}")
     return config.DET_WEIGHTS.exists() and config.REC_WEIGHTS.exists()
 
 
