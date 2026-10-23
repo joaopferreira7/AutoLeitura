@@ -1,0 +1,2 @@
+# arquivos usados dentro do container Linux do Hugging Face precisam de quebra de linha LF
+deploy/huggingface/* text eol=lf

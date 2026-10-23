@@ -40,7 +40,10 @@ def montar(destino):
         if peso.exists():
             shutil.copy(peso, destino / "weights" / peso.name)
     for arq in (ROOT / "deploy" / "huggingface").iterdir():
-        shutil.copy(arq, destino / arq.name)
+        # o container é Linux: CRLF quebraria as continuações de linha do Dockerfile
+        (destino / arq.name).write_bytes(arq.read_bytes().replace(b"
+", b"
+"))
 
 
 def main():
