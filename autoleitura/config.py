@@ -12,10 +12,12 @@ DATA_DIR = ROOT / "data"
 RAW_DIR = DATA_DIR / "raw"            # dataset original (UFPR-AMR, Roboflow, sintético)
 DET_DIR = DATA_DIR / "det"            # dataset no formato YOLO para o detector do contador
 REC_DIR = DATA_DIR / "rec"            # recortes do contador + labels.csv para o reconhecedor
+DIG_DIR = DATA_DIR / "dig"            # recortes do contador no formato YOLO, um box por dígito (classes 0–9)
 
 WEIGHTS_DIR = ROOT / "weights"
 DET_WEIGHTS = WEIGHTS_DIR / "detector.pt"
 REC_WEIGHTS = WEIGHTS_DIR / "recognizer.pt"
+DIG_WEIGHTS = WEIGHTS_DIR / "digits.pt"
 
 # AUTOLEITURA_DB permite usar outro arquivo (ex.: um banco de demonstração para a apresentação)
 DB_PATH = Path(os.environ.get("AUTOLEITURA_DB", ROOT / "autoleitura.db"))
@@ -23,6 +25,9 @@ DB_PATH = Path(os.environ.get("AUTOLEITURA_DB", ROOT / "autoleitura.db"))
 # Detector (YOLOv8)
 DET_IMG_SIZE = 640
 DET_BASE_MODEL = "yolov8n.pt"         # 'n' é leve o suficiente p/ CPU; troque por yolov8s.pt se tiver GPU
+
+# Leitor de dígitos (YOLOv8 com 10 classes, roda sobre o recorte do contador)
+DIG_IMG_SIZE = 320
 
 # Reconhecedor (CRNN)
 REC_HEIGHT = 32

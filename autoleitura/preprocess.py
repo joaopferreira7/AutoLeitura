@@ -40,13 +40,17 @@ def limit_size(img, max_side=1600):
     return cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA), scale
 
 
-def crop_box(img, box, margin=config.CROP_MARGIN):
-    """Recorta a caixa (x1, y1, x2, y2) com uma margem proporcional."""
-    h, w = img.shape[:2]
+def crop_coords(shape, box, margin=config.CROP_MARGIN):
+    """Coordenadas inteiras (x1, y1, x2, y2) do recorte da caixa com margem, limitadas à imagem."""
+    h, w = shape[:2]
     x1, y1, x2, y2 = box
     mx, my = (x2 - x1) * margin, (y2 - y1) * margin
-    x1, y1 = max(0, int(x1 - mx)), max(0, int(y1 - my))
-    x2, y2 = min(w, int(x2 + mx)), min(h, int(y2 + my))
+    return max(0, int(x1 - mx)), max(0, int(y1 - my)), min(w, int(x2 + mx)), min(h, int(y2 + my))
+
+
+def crop_box(img, box, margin=config.CROP_MARGIN):
+    """Recorta a caixa (x1, y1, x2, y2) com uma margem proporcional."""
+    x1, y1, x2, y2 = crop_coords(img.shape, box, margin)
     return img[y1:y2, x1:x2]
 
 

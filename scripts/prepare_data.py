@@ -2,6 +2,7 @@
 
   data/det/  -> formato YOLO (1 classe: "contador") para treinar o detector
   data/rec/  -> recortes do contador + labels.csv (arquivo, leitura, split) para a CRNN
+  data/dig/  -> recortes do contador no formato YOLO, um box por dígito (classes 0–9)
 
 Fontes suportadas (--source):
   ufpr      UFPR-AMR (pastas training/validation/testing, cada imagem com um .txt de anotação)
@@ -24,7 +25,7 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from autoleitura import config  # noqa: E402
-from autoleitura.preprocess import crop_box, limit_size  # noqa: E402
+from autoleitura.preprocess import crop_box, crop_coords, limit_size  # noqa: E402
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 SPLIT_ALIASES = {"training": "train", "train": "train", "validation": "val", "valid": "val",
@@ -57,7 +58,8 @@ def parse_ufpr_txt(path):
     if counter is None or reading is None:
         return None
     x, y, w, h = counter
-    return (x, y, x + w, y + h), reading
+    digit_boxes = [(dx, dy, dx + dw, dy + dh) for dx, dy, dw, dh in sorted(digits, key=lambda d: d[0])]
+    return (x, y, x + w, y + h), reading, digit_boxes
 
 
 def load_ufpr(root):
@@ -71,7 +73,10 @@ def load_ufpr(root):
             print(f"[aviso] anotação incompleta, ignorada: {txt}")
             continue
         split = next((SPLIT_ALIASES[p.lower()] for p in img_path.parts if p.lower() in SPLIT_ALIASES), None)
-        samples.append({"image": img_path, "box": parsed[0], "reading": parsed[1], "split": split})
+        box, reading, digit_boxes = parsed
+        # cada caixa de dígito recebe o caractere da leitura na mesma posição (esquerda -> direita)
+        digits = list(zip(digit_boxes, reading)) if len(digit_boxes) == len(reading) else []
+        samples.append({"image": img_path, "box": box, "reading": reading, "digits": digits, "split": split})
     return samples
 
 
@@ -113,7 +118,7 @@ def load_roboflow(root):
             cnt = (min(d[0][0] for d in dig), min(d[0][1] for d in dig),
                    max(d[0][2] for d in dig), max(d[0][3] for d in dig))
         split = next((SPLIT_ALIASES[p.lower()] for p in img_path.parts if p.lower() in SPLIT_ALIASES), None)
-        samples.append({"image": img_path, "box": cnt, "reading": reading, "split": split})
+        samples.append({"image": img_path, "box": cnt, "reading": reading, "digits": dig, "split": split})
     return samples
 
 
@@ -129,11 +134,12 @@ def assign_splits(samples, seed=42):
 
 def write_datasets(samples, prefix, append):
     if not append:
-        shutil.rmtree(config.DET_DIR, ignore_errors=True)
-        shutil.rmtree(config.REC_DIR, ignore_errors=True)
+        for d in (config.DET_DIR, config.REC_DIR, config.DIG_DIR):
+            shutil.rmtree(d, ignore_errors=True)
     for split in ("train", "val", "test"):
-        (config.DET_DIR / "images" / split).mkdir(parents=True, exist_ok=True)
-        (config.DET_DIR / "labels" / split).mkdir(parents=True, exist_ok=True)
+        for d in (config.DET_DIR, config.DIG_DIR):
+            (d / "images" / split).mkdir(parents=True, exist_ok=True)
+            (d / "labels" / split).mkdir(parents=True, exist_ok=True)
     (config.REC_DIR / "images").mkdir(parents=True, exist_ok=True)
 
     labels_csv = config.REC_DIR / "labels.csv"
@@ -160,7 +166,23 @@ def write_datasets(samples, prefix, append):
             (config.DET_DIR / "labels" / s["split"] / f"{name}.txt").write_text(
                 f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}\n")
 
-            cv2.imwrite(str(config.REC_DIR / "images" / f"{name}.png"), crop_box(img, s["box"]))
+            crop = crop_box(img, s["box"])
+            cv2.imwrite(str(config.REC_DIR / "images" / f"{name}.png"), crop)
+
+            # dataset de dígitos: o mesmo recorte, com a caixa de cada dígito relativa ao recorte
+            if s.get("digits"):
+                ox, oy, _, _ = crop_coords(img.shape, s["box"])
+                ch, cw = crop.shape[:2]
+                lines = []
+                for (dx1, dy1, dx2, dy2), d in s["digits"]:
+                    dx1, dx2 = max(0, dx1 - ox), min(cw, dx2 - ox)
+                    dy1, dy2 = max(0, dy1 - oy), min(ch, dy2 - oy)
+                    if dx2 > dx1 and dy2 > dy1:
+                        lines.append(f"{d} {(dx1 + dx2) / 2 / cw:.6f} {(dy1 + dy2) / 2 / ch:.6f} "
+                                     f"{(dx2 - dx1) / cw:.6f} {(dy2 - dy1) / ch:.6f}")
+                cv2.imwrite(str(config.DIG_DIR / "images" / s["split"] / f"{name}.jpg"), crop,
+                            [cv2.IMWRITE_JPEG_QUALITY, 95])
+                (config.DIG_DIR / "labels" / s["split"] / f"{name}.txt").write_text("\n".join(lines) + "\n")
             writer.writerow([f"{name}.png", s["reading"], s["split"], s["image"].name])
             if (i + 1) % 200 == 0:
                 print(f"  {i + 1}/{len(samples)} imagens processadas")
@@ -168,6 +190,9 @@ def write_datasets(samples, prefix, append):
     (config.DET_DIR / "data.yaml").write_text(
         f"path: {config.DET_DIR.as_posix()}\ntrain: images/train\nval: images/val\ntest: images/test\n"
         "names:\n  0: contador\n", encoding="utf-8")
+    (config.DIG_DIR / "data.yaml").write_text(
+        f"path: {config.DIG_DIR.as_posix()}\ntrain: images/train\nval: images/val\ntest: images/test\n"
+        "names:\n" + "".join(f"  {i}: '{i}'\n" for i in range(10)), encoding="utf-8")
 
 
 def main():
@@ -187,6 +212,7 @@ def main():
     print(f"{len(samples)} amostras convertidas {counts}")
     print(f"  detector:      {config.DET_DIR / 'data.yaml'}")
     print(f"  reconhecedor:  {config.REC_DIR / 'labels.csv'}")
+    print(f"  dígitos:       {config.DIG_DIR / 'data.yaml'}")
 
 
 if __name__ == "__main__":
