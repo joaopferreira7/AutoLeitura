@@ -41,9 +41,7 @@ def montar(destino):
             shutil.copy(peso, destino / "weights" / peso.name)
     for arq in (ROOT / "deploy" / "huggingface").iterdir():
         # o container é Linux: CRLF quebraria as continuações de linha do Dockerfile
-        (destino / arq.name).write_bytes(arq.read_bytes().replace(b"
-", b"
-"))
+        (destino / arq.name).write_bytes(arq.read_bytes().replace(b"\r\n", b"\n"))
 
 
 def main():
