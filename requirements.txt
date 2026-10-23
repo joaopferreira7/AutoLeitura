@@ -10,3 +10,4 @@ streamlit>=1.45
 fastapi
 uvicorn
 python-multipart
+huggingface_hub
