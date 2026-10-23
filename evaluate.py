@@ -16,6 +16,7 @@ import cv2
 from ultralytics import YOLO
 
 from autoleitura import config, db
+from autoleitura.consumo import CONFIANCA_MINIMA
 from autoleitura.metrics import evaluate_readings
 from autoleitura.pipeline import AutoLeitura
 
@@ -36,13 +37,16 @@ def main():
                                             project=str(config.ROOT / "runs" / "eval"), name="det", exist_ok=True)
     map50 = float(det.box.map50)
 
-    # 2) reconhecedor isolado (recortes do ground truth)
+    # 2) leitores isolados (recortes do ground truth): separa o erro de detecção do erro de leitura
     system = AutoLeitura()
-    rec_preds = [system.recognizer.read(cv2.imread(str(config.REC_DIR / "images" / r["arquivo"])))[0] for r in rows]
-    rec_m = evaluate_readings(rec_preds, [r["leitura"] for r in rows])
+    crops = [cv2.imread(str(config.REC_DIR / "images" / r["arquivo"])) for r in rows]
+    gts_rec = [r["leitura"] for r in rows]
+    rec_m = evaluate_readings([system.recognizer.read(c)[0] for c in crops], gts_rec)
+    dig_m = (evaluate_readings([system.digit_reader.read(c)[0] for c in crops], gts_rec)
+             if system.digit_reader else None)
 
     # 3) pipeline completo
-    preds, gts, errors, times = [], [], [], []
+    preds, gts, errors, times, confs = [], [], [], [], []
     for img_path in sorted((config.DET_DIR / "images" / args.split).iterdir()):
         if img_path.stem not in gt:
             continue
@@ -51,23 +55,31 @@ def main():
         preds.append(p)
         gts.append(gt[img_path.stem])
         times.append(res["time_ms"])
+        confs.append(res["confidence"])
         if p != gt[img_path.stem]:
             errors.append([img_path.name, gt[img_path.stem], p, f"{res['confidence']:.3f}"])
     m = evaluate_readings(preds, gts)
 
     print("\n=========== RESULTADOS (%s, n=%d) ===========" % (args.split, m["n"]))
     print(f"Detecção          mAP@0.5               : {map50:.4f}")
-    print(f"Reconhecedor      acurácia de leitura   : {rec_m['reading_acc']:.4f}  (recortes anotados)")
+    print(f"CRNN isolada      acurácia de leitura   : {rec_m['reading_acc']:.4f}  (recortes anotados)")
+    if dig_m:
+        print(f"YOLO de dígitos   acurácia de leitura   : {dig_m['reading_acc']:.4f}  (recortes anotados)")
     print(f"Pipeline completo acurácia de leitura   : {m['reading_acc']:.4f}  <- métrica principal")
     print(f"Pipeline completo acurácia por dígito   : {m['digit_acc']:.4f}")
     print(f"Pipeline completo Levenshtein médio     : {m['mean_lev']:.4f}")
     print(f"Tempo médio por imagem                  : {sum(times) / len(times):.0f} ms")
+    aceitas = [p == g for p, g, c in zip(preds, gts, confs) if c >= CONFIANCA_MINIMA]
+    print(f"Aceitas direto no app (confiança >= {CONFIANCA_MINIMA:.0%}): {len(aceitas) / len(preds):.1%} das fotos,"
+          f" com {sum(aceitas) / max(1, len(aceitas)):.2%} de acerto")
     print("Acurácia por dígito (0–9):", json.dumps({k: round(v, 3) if v is not None else None
                                                   for k, v in m["per_digit"].items()}))
 
     con = db.connect()
     db.save_evaluation(con, f"{args.split} (pipeline)", m, det_map50=map50)
-    db.save_evaluation(con, f"{args.split} (reconhecedor)", rec_m)
+    db.save_evaluation(con, f"{args.split} (CRNN isolada)", rec_m)
+    if dig_m:
+        db.save_evaluation(con, f"{args.split} (YOLO de dígitos isolado)", dig_m)
     print(f"\nMétricas gravadas em {config.DB_PATH}")
 
     if args.errors:
