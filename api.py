@@ -43,6 +43,7 @@ async def ler(foto: UploadFile = File(..., description="Foto do medidor (JPG/PNG
         "confianca": round(res["confidence"], 4),
         "confianca_deteccao": round(res["det_confidence"], 4),
         "confianca_por_digito": [round(c, 4) for c in res["digit_confidences"]],
+        "leitores": res["leitores"],
         "caixa_contador": res["bbox"],
         "aviso": res["warning"],
         "tempo_ms": round(res["time_ms"], 1),

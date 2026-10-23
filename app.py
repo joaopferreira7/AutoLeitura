@@ -127,8 +127,11 @@ def page_nova_leitura():
     c1.metric("Leitura do modelo", res["reading"])
     c2.metric("Confiança", f"{res['confidence'] * 100:.0f}%")
     st.image(cv2.cvtColor(res["crop"], cv2.COLOR_BGR2RGB), caption="Contador encontrado", width="stretch")
+    if res["warning"]:
+        st.warning(res["warning"])
     with st.expander("Ver foto completa e detalhes"):
         st.image(st.session_state.anotada, width="stretch")
+        st.caption("Leitores: " + " · ".join(f"{k}: {v or '—'}" for k, v in res.get("leitores", {}).items()))
         st.caption("Confiança por dígito: " + "  ".join(
             f"{d}={c * 100:.0f}%" for d, c in zip(res["reading"], res["digit_confidences"])))
         st.caption(f"Detecção do contador: {res['det_confidence'] * 100:.0f}% · Tempo: {res['time_ms']:.0f} ms")
@@ -314,7 +317,8 @@ def page_modelo():
         st.info("Nenhuma avaliação ainda. Rode `python evaluate.py`.")
 
     st.subheader("Em uso real")
-    rows = [r for r in db.list_readings(con) if r["valor_real"]]
+    # só leituras feitas pelo modelo (as de demonstração não têm confiança)
+    rows = [r for r in db.list_readings(con) if r["valor_real"] and r["confianca"] is not None]
     if not rows:
         st.caption("As leituras salvas no app aparecem aqui, comparando o valor do modelo com o confirmado.")
         return

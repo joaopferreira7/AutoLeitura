@@ -9,10 +9,38 @@ from .preprocess import crop_box, limit_size
 from .recognizer import Recognizer
 
 
+def combine(crnn, yolo):
+    """Junta as duas leituras do recorte. Regra escolhida no conjunto de validação do UFPR-AMR:
+
+    - a leitura é a do YOLO de dígitos (93,8% na validação, contra 91,0% da CRNN);
+      se ele não achar os 5 dígitos e a CRNN achar, fica a da CRNN;
+    - quando os dois leitores concordam (88,8% das fotos), a leitura está certa em 99,2% dos casos,
+      então a confiança sobe; quando discordam, ela cai e o app pede conferência.
+
+    Cada leitura é (texto, confiança, confiança por dígito). Retorna (texto, confiança, conf. por dígito).
+    """
+    (tc, cc, dcc), (ty, cy, dcy) = crnn, yolo
+    if len(ty) == config.NUM_DIGITS or len(tc) != config.NUM_DIGITS:
+        text, digit_confs = ty, dcy
+    else:
+        text, digit_confs = tc, dcc
+    if tc == ty:
+        conf = 1 - (1 - cc) * (1 - cy)
+    elif tc and ty:
+        conf = 0.5 * min(cc, cy)
+    else:
+        conf = 0.25 * max(cc, cy)
+    return text, conf, digit_confs
+
+
 class AutoLeitura:
-    def __init__(self, det_weights=config.DET_WEIGHTS, rec_weights=config.REC_WEIGHTS):
+    def __init__(self, det_weights=config.DET_WEIGHTS, rec_weights=config.REC_WEIGHTS, dig_weights=config.DIG_WEIGHTS):
         self.detector = CounterDetector(det_weights)
         self.recognizer = Recognizer(rec_weights)
+        self.digit_reader = None
+        if dig_weights and dig_weights.exists():          # sem o YOLO de dígitos, usa só a CRNN
+            from .digits import DigitReader
+            self.digit_reader = DigitReader(dig_weights)
 
     def read(self, img):
         """Recebe uma imagem BGR e devolve um dicionário com a leitura e as informações de apoio."""
@@ -22,13 +50,20 @@ class AutoLeitura:
 
         if box is None:
             return {"reading": None, "confidence": 0.0, "det_confidence": 0.0, "bbox": None,
-                    "digit_confidences": [], "crop": None,
+                    "digit_confidences": [], "crop": None, "leitores": {},
                     "time_ms": (time.perf_counter() - t0) * 1000,
                     "warning": "Contador não encontrado na imagem."}
 
         box = tuple(v / scale for v in box)                 # volta para a escala original
         crop = crop_box(img, box)
-        text, rec_conf, digit_confs = self.recognizer.read(crop)
+        crnn = self.recognizer.read(crop)
+        leitores = {"CRNN": crnn[0]}
+        if self.digit_reader is not None:
+            yolo = self.digit_reader.read(crop)
+            leitores["YOLO de dígitos"] = yolo[0]
+            text, rec_conf, digit_confs = combine(crnn, yolo)
+        else:
+            text, rec_conf, digit_confs = crnn
 
         # Pós-processamento: confiança final combina detecção e reconhecimento;
         # leituras com quantidade de dígitos inesperada são sinalizadas.
@@ -37,6 +72,9 @@ class AutoLeitura:
         if len(text) != config.NUM_DIGITS:
             warning = f"Foram lidos {len(text)} dígitos (esperado {config.NUM_DIGITS}). Confira a leitura."
             confidence *= 0.5
+        elif len(set(leitores.values())) > 1:
+            warning = ("Os dois leitores discordaram (" + ", ".join(f"{k}: {v or '—'}" for k, v in leitores.items())
+                       + "). Confira os números com o medidor.")
 
         return {
             "reading": text,
@@ -45,6 +83,7 @@ class AutoLeitura:
             "bbox": [round(v, 1) for v in box],
             "digit_confidences": digit_confs,
             "crop": crop,
+            "leitores": leitores,
             "time_ms": (time.perf_counter() - t0) * 1000,
             "warning": warning,
         }
