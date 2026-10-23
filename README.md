@@ -8,8 +8,9 @@ Integrantes: Gabriel Quirino Bressanin · Guilherme Barros Oliveira · Heitor Lu
 A foto do medidor passa por um pipeline de dois estágios e sai como leitura numérica com índice de confiança:
 
 ```
-foto ─► OpenCV (CLAHE, redimensionamento) ─► YOLOv8 (região do contador)
-     ─► recorte + retificação ─► CRNN + CTC (dígitos) ─► pós-processamento (confiança, nº de dígitos)
+foto ─► OpenCV (EXIF, redimensionamento) ─► YOLOv8 (região do contador) ─► recorte
+     ─► YOLOv8 de dígitos (0–9)  ┐
+     ─► CRNN + CTC (sequência)    ┴► combinação: leitura do YOLO, confiança alta só se os dois concordarem
      ─► validação (consumo, virada do contador, alertas) ─► SQLite ─► app web (computador e celular) / API REST
 ```
 
@@ -39,14 +40,18 @@ devolve o valor e a confiança em JSON; `GET /medidores/{id}/consumo` devolve o 
 | `autoleitura/preprocess.py` | Leitura, CLAHE, redimensionamento, recorte e retificação (deskew) | 5 (etapas 2 e 4), 6 |
 | `autoleitura/detector.py` | Wrapper do YOLOv8 que devolve a caixa do contador | 5 (etapa 3), 7 |
 | `autoleitura/recognizer.py` | CRNN (CNN + BiLSTM) com decodificação CTC e confiança por dígito | 5 (etapa 5), 7 |
-| `autoleitura/pipeline.py` | Pipeline completo e desenho do resultado | 5 (etapas 6 e 9) |
+| `autoleitura/digits.py` | YOLOv8 de 10 classes que detecta e classifica cada dígito no recorte | 5 (etapa 5), 7 |
+| `autoleitura/pipeline.py` | Pipeline completo, combinação dos dois leitores e desenho do resultado | 5 (etapas 6 e 9) |
 | `autoleitura/consumo.py` | Consumo do mês, virada do contador, conta estimada e alertas | 5 (etapa 6), 11 |
 | `autoleitura/db.py` | Imóveis, medidores, leituras e avaliações em SQLite | 5 (etapa 7) |
 | `autoleitura/metrics.py` | Acurácia de leitura, acurácia por dígito, Levenshtein | 11 |
 | `scripts/prepare_data.py` | Converte UFPR-AMR / Roboflow para os datasets do detector e do reconhecedor | 6 |
 | `scripts/make_synthetic.py` | Gera medidores sintéticos para testar o pipeline | — |
+| `scripts/criar_demo.py` | Cria um imóvel de demonstração com histórico (apresentação) | — |
+| `scripts/publicar_hf.py` | Publica o app no Hugging Face Spaces | — |
 | `train_detector.py` | Treina o YOLOv8 com augmentation | 7 |
 | `train_recognizer.py` | Treina a CRNN com augmentation (só no treino) | 7 |
+| `train_digits.py` | Treina o YOLOv8 de dígitos | 7 |
 | `evaluate.py` | Avaliação ponta a ponta no teste e gravação no banco | 11 |
 | `app.py` | App web de autoleitura (computador e celular) | 5 (etapa 8) |
 | `rodar_app.py` | Abre o app e mostra o endereço para o celular | 5 (etapa 8) |
@@ -88,6 +93,7 @@ Se algum integrante tiver GPU NVIDIA, dá para treinar localmente instalando o P
 python scripts/prepare_data.py --source ufpr --input data/raw/ufpr
 python train_detector.py --model yolov8s.pt --epochs 100 --device 0
 python train_recognizer.py --epochs 80 --workers 6
+python train_digits.py --epochs 150 --device 0
 python evaluate.py --errors erros_teste.csv
 ```
 
@@ -115,23 +121,26 @@ python evaluate.py --errors erros_teste.csv
 
 ## Resultados (UFPR-AMR, conjunto de teste com 800 fotos)
 
-Treino local numa RTX 3060: detector YOLOv8s (100 épocas, ~25 min) e CRNN (80 épocas, ~12 min).
+Treino local numa RTX 3060: detector do contador YOLOv8s (100 épocas, ~25 min), CRNN (80 épocas, ~12 min)
+e YOLOv8s de dígitos (150 épocas, ~15 min). A regra de combinação dos dois leitores foi escolhida no conjunto
+de **validação**; o teste foi usado uma única vez, no final.
 
-| Métrica | Resultado |
-|---|---|
-| Detecção do contador, mAP@0.5 | **99,4%** |
-| Leitura completa (os 5 dígitos certos), pipeline inteiro | **89,0%** |
-| Acurácia por dígito | **96,2%** |
-| Distância de Levenshtein média | 0,16 |
-| Reconhecedor isolado (recortes anotados) | 89,6% |
-| Tempo por foto | 16 ms (GPU) |
+| Métrica | Só CRNN | CRNN + YOLO de dígitos (final) |
+|---|---|---|
+| Detecção do contador, mAP@0.5 | 99,4% | 99,4% |
+| **Leitura completa** (os 5 dígitos certos), pipeline inteiro | 89,0% | **93,4%** |
+| Acurácia por dígito | 96,2% | **97,7%** |
+| Distância de Levenshtein média | 0,16 | **0,11** |
+| Fotos aceitas direto pelo app (confiança ≥ 60%) | 72% | **87%** |
+| Acerto nas fotos aceitas direto | 95,3% | **98,7%** |
+| Tempo por foto (GPU) | 16 ms | 31 ms |
 
-**Análise dos erros (88 de 800):**
-- o detector praticamente não erra: o pipeline completo (89,0%) fica quase igual à CRNN com recortes perfeitos (89,6%);
-- quase metade dos erros (43) está no **último dígito**, o rolete que gira continuamente e muitas vezes aparece
-  no meio da troca entre dois números;
-- 69% dos erros já saem com confiança abaixo de 60%.
+Leitores isolados, sobre os recortes anotados: CRNN 89,6% e YOLO de dígitos 92,4%.
 
-**Confiança na prática:** com o limiar do app (60%), **72% das fotos são aceitas direto, com 95,3% de acerto**;
-as demais pedem que o usuário confira os números antes de salvar. Com limiar de 80%, as leituras aceitas
-direto chegam a 99,3% de acerto, mas só 37% das fotos passam sem conferência.
+**Por que a combinação funciona:** a maior parte dos erros está no último dígito, o rolete que gira continuamente
+e aparece no meio da troca entre dois números. Os dois leitores erram de formas diferentes: na validação,
+quando **concordam** (88,8% das fotos) a leitura está certa em **99,2%** dos casos. Por isso a confiança
+sobe quando concordam e cai quando discordam, e o app pede conferência só nesses casos.
+
+A meta da proposta (seção 11) era acurácia de leitura completa "em torno de 90% ou mais"; os trabalhos de
+referência no UFPR-AMR relatam de 94% a 97%.
