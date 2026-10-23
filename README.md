@@ -5,6 +5,8 @@ Projeto de Visão Computacional, Ciência da Computação, UNISAGRADO, 3º ano, 
 
 Integrantes: Gabriel Quirino Bressanin · Guilherme Barros Oliveira · Heitor Lupino · João Pedro Ferreira · Matheus Risso
 
+**App no ar:** https://autoleitura.streamlit.app (abre no computador e no celular)
+
 A foto do medidor passa por um pipeline de dois estágios e sai como leitura numérica com índice de confiança:
 
 ```
@@ -69,10 +71,11 @@ devolve o valor e a confiança em JSON; `GET /medidores/{id}/consumo` devolve o 
 3. Ao final, baixe `MeuDrive/AutoLeitura/weights/detector.pt` e `recognizer.pt` para a pasta `weights/` local.
 
 ### 2. Rodar o app (computador e celular)
-Coloque `detector.pt` e `recognizer.pt` em `weights/` e rode:
+Os pesos treinados ficam no [Release `modelos-v1`](https://github.com/joaopferreira7/AutoLeitura/releases/tag/modelos-v1)
+e o app os baixa sozinho para `weights/` na primeira execução (~55 MB).
 ```bash
 pip install -r requirements.txt
-python rodar_app.py
+python rodar_app.py              # adicione --demo para criar os imóveis de demonstração
 ```
 O terminal mostra dois endereços: um para o computador (`http://localhost:8501`) e outro para o celular
 (`http://<ip-do-computador>:8501`), que precisa estar **na mesma rede Wi-Fi**. Na primeira vez, o Windows pergunta
@@ -82,7 +85,20 @@ um ícone como o de um app.
 A câmera ao vivo dentro da página só funciona no celular com HTTPS; pelo endereço da rede local, use o botão de
 enviar foto, que já oferece a câmera do celular.
 
+**Link público temporário** (plano B, funciona até no 4G): `python rodar_app.py --publico` abre um túnel gratuito da
+Cloudflare e mostra um link `https://...trycloudflare.com`. Precisa do cloudflared, instalado uma vez com
+`winget install --id Cloudflare.cloudflared`. O link só funciona enquanto o programa estiver aberto.
+
 A API: `uvicorn api:app --host 0.0.0.0 --port 8000` (documentação em `http://localhost:8000/docs`).
+
+### 3. Publicação na nuvem (Streamlit Community Cloud)
+O app em https://autoleitura.streamlit.app é publicado direto deste repositório (branch `main`, arquivo `app.py`,
+Python 3.12) e se atualiza sozinho a cada push. Na nuvem:
+- o `requirements.txt` instala o PyTorch só de CPU e o `packages.txt` instala as bibliotecas de sistema do OpenCV;
+- os pesos são baixados do Release na primeira execução;
+- o banco começa com os imóveis de demonstração e é apagado quando o app reinicia (não guarde dados reais lá).
+
+A pasta `deploy/huggingface` tem uma versão em Docker para o Hugging Face Spaces, que hoje exige a assinatura PRO.
 
 A inferência roda em CPU sem problemas (~100–300 ms por foto com `yolov8n`/`yolov8s`).
 
