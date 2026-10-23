@@ -3,6 +3,7 @@
 Todos os caminhos são relativos à raiz do projeto, para funcionar igual
 no notebook local e no Google Colab.
 """
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,7 +17,8 @@ WEIGHTS_DIR = ROOT / "weights"
 DET_WEIGHTS = WEIGHTS_DIR / "detector.pt"
 REC_WEIGHTS = WEIGHTS_DIR / "recognizer.pt"
 
-DB_PATH = ROOT / "autoleitura.db"
+# AUTOLEITURA_DB permite usar outro arquivo (ex.: um banco de demonstração para a apresentação)
+DB_PATH = Path(os.environ.get("AUTOLEITURA_DB", ROOT / "autoleitura.db"))
 
 # Detector (YOLOv8)
 DET_IMG_SIZE = 640
