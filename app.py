@@ -5,13 +5,12 @@
 """
 import hashlib
 import os
-from datetime import date
 
 import cv2
 import pandas as pd
 import streamlit as st
 
-from autoleitura import config, consumo, db, demo, pesos
+from autoleitura import config, consumo, db, demo, pesos, tempo
 from autoleitura.preprocess import load_image
 
 st.set_page_config(page_title="AutoLeitura", page_icon="🔢", layout="centered")
@@ -28,11 +27,22 @@ DEMO = NA_NUVEM or os.environ.get("AUTOLEITURA_DEMO") == "1"
 
 
 @st.cache_resource
-def get_db():
+def preparar_banco():
+    """Uma vez por processo: cria as tabelas e, na demonstração, os imóveis de exemplo."""
     con = db.connect()
     if DEMO:
         demo.criar_se_vazio(con)
-    return con
+    con.close()
+    return True
+
+
+def get_db():
+    # Uma conexão por sessão (cada pessoa usando o app): uma conexão SQLite compartilhada
+    # entre as threads de vários usuários pode falhar em escritas simultâneas.
+    preparar_banco()
+    if "db" not in st.session_state:
+        st.session_state.db = db.connect()
+    return st.session_state.db
 
 
 @st.cache_resource(show_spinner="Carregando os modelos...")
@@ -66,12 +76,7 @@ def nome_medidor(m):
 
 
 def meses(n=12):
-    hoje = date.today()
-    out = []
-    for i in range(n):
-        y, mth = divmod(hoje.year * 12 + hoje.month - 1 - i, 12)
-        out.append(f"{y:04d}-{mth + 1:02d}")
-    return out
+    return tempo.meses_ate(n)
 
 
 def fmt_mes(ref):
@@ -165,6 +170,7 @@ def page_nova_leitura():
 
     hist = consumo.historico(medidor, db.list_readings(con, medidor["id"]))
     anteriores = [h for h in hist if h["referencia"] < referencia]
+    posteriores = [h for h in hist if h["referencia"] > referencia]       # lançando um mês que ficou para trás
     anterior = anteriores[-1]["valor"] if anteriores else medidor.get("leitura_inicial")
     alertas = consumo.validar(
         valor, medidor["tipo"],
@@ -172,6 +178,7 @@ def page_nova_leitura():
         anterior=anterior,
         consumos_anteriores=[h["consumo"] for h in anteriores],
         referencia_repetida=any(h["referencia"] == referencia for h in hist),
+        posterior=posteriores[0]["valor"] if posteriores else None,
     )
     mostrar_alertas(alertas)
 
