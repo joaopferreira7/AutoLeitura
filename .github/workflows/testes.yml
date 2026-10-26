@@ -1,0 +1,29 @@
+# Roda os testes automatizados a cada push e pull request.
+# Os testes que precisam do dataset UFPR-AMR (licença acadêmica, fora do repositório) são pulados;
+# os que usam os modelos rodam com os pesos baixados do Release modelos-v1.
+name: Testes
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 12 * * 1"     # toda segunda: avisa se uma atualização de biblioteca quebrou algo
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"      # a mesma do app publicado
+          cache: pip
+      - name: Bibliotecas de sistema do OpenCV
+        run: sudo apt-get update && sudo apt-get install -y libgl1 libglib2.0-0
+      - name: Dependências
+        run: pip install -r requirements-dev.txt
+      - name: Pesos treinados (Release modelos-v1, com SHA-256 conferido)
+        run: python -m autoleitura.pesos
+      - name: Testes
+        run: python -m pytest -rs
