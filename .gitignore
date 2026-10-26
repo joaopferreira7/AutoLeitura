@@ -8,3 +8,4 @@ __pycache__/
 yolo*.pt
 check.png
 logs/
+.pytest_cache/
