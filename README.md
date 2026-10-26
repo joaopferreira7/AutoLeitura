@@ -160,3 +160,37 @@ sobe quando concordam e cai quando discordam, e o app pede conferência só ness
 
 A meta da proposta (seção 11) era acurácia de leitura completa "em torno de 90% ou mais"; os trabalhos de
 referência no UFPR-AMR relatam de 94% a 97%.
+
+## Testes
+
+[![Testes](https://github.com/joaopferreira7/AutoLeitura/actions/workflows/testes.yml/badge.svg)](https://github.com/joaopferreira7/AutoLeitura/actions/workflows/testes.yml)
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+67 testes em `tests/`: regras de consumo e alertas, banco (inclusive gravações simultâneas de vários usuários e
+migração de bancos antigos), pré-processamento (fotos de celular giradas pelo EXIF, arquivos inválidos),
+preparação dos dados em pastas temporárias, verificação do SHA-256 dos pesos, regra de combinação dos leitores,
+fotos sem medidor, leituras simultâneas, API e as quatro telas do app. Os testes nunca tocam em `data/` nem no
+banco real. Quem tem o UFPR-AMR em `data/raw/ufpr` roda também um teste de regressão com 30 fotos reais
+(acerto mínimo de 85%). No GitHub, os testes rodam a cada push e toda segunda-feira, para avisar se uma
+atualização de biblioteca quebrou algo.
+
+## Riscos conhecidos e hipóteses
+
+| Risco | Probabilidade | O que acontece | Mitigação atual / o que fazer |
+|---|---|---|---|
+| Fotos fora do padrão do UFPR-AMR (outros modelos de medidor, sol forte, vidro sujo, foto de longe) | Alta | Acurácia menor que os 93,4% medidos | A confiança cai quando os leitores discordam e o app pede conferência; medir com fotos reais de usuários |
+| Medidores de água | Alta | O modelo só viu medidores de energia; contadores com m³, casas decimais e dígitos vermelhos | Aviso na tela; treinar com um dataset de água (Roboflow ou fotos próprias) |
+| Erro com confiança alta (os dois leitores erram igual) | Baixa (9 de 800 no teste) | Leitura errada aceita sem conferência | Validação contra o mês anterior e a média; usuário pode corrigir no histórico |
+| Atualização de bibliotecas (Streamlit, Ultralytics, PyTorch) | Média | App publicado para de abrir ou muda de comportamento | Streamlit e Ultralytics com versão fixa; testes semanais no GitHub |
+| Nuvem gratuita do Streamlit | Média | App "dorme" após dias sem uso; banco apagado a cada reinício; CPU e memória limitadas | Abrir o link antes da apresentação; não guardar dados reais; plano B com `rodar_app.py --publico` |
+| Release `modelos-v1` apagado, renomeado ou repositório privado | Baixa | O app não consegue baixar os modelos | Não apagar o Release; pesos conferidos por SHA-256 |
+| Muitos usuários ao mesmo tempo | Baixa (trabalho acadêmico) | Leituras em fila (uma por vez) e SQLite no limite | Para produção: banco hospedado (PostgreSQL) e mais instâncias |
+| Rolete do último dígito em transição | Alta (metade dos erros) | Último dígito errado em 1 unidade | Conferência quando há discordância; mais exemplos de transição no treino |
+| Licença do UFPR-AMR | Certa | Uso só acadêmico e não comercial, inclusive dos modelos treinados | Não usar comercialmente; para produto, treinar com dados próprios |
+| Privacidade (LGPD) | Média em produção | As fotos e recortes podem mostrar endereço e número de série | Demo não guarda dados reais; em produção, consentimento e política de retenção |
+| iPhone enviando foto HEIC da galeria | Baixa | Arquivo recusado | O Safari costuma converter para JPEG; fotografar pela câmera do app |
+| API sem autenticação | Só se publicada | Qualquer um poderia enviar fotos | A API não está publicada; em produção, chave de acesso e limite de requisições |
