@@ -1,9 +1,8 @@
 """Armazenamento em SQLite (etapa 7 da arquitetura): imóveis, medidores, leituras e métricas."""
 import json
 import sqlite3
-from datetime import datetime
 
-from . import config
+from . import config, tempo
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS imoveis (
@@ -54,10 +53,14 @@ CREATE TABLE IF NOT EXISTS avaliacoes (
 _NOVAS_COLUNAS = {"leituras": {"medidor_id": "INTEGER", "referencia": "TEXT", "recorte": "BLOB"}}
 
 
-def connect(path=config.DB_PATH):
-    con = sqlite3.connect(path, check_same_thread=False)
+def connect(path=None):
+    """Abre o banco (criando as tabelas). Use UMA conexão por usuário/thread: no app, cada sessão
+    do Streamlit abre a sua. O modo WAL deixa uma pessoa ler enquanto outra grava, e o timeout faz
+    uma escrita esperar a outra terminar em vez de falhar com "database is locked"."""
+    con = sqlite3.connect(path or config.DB_PATH, timeout=15, check_same_thread=False)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
+    con.execute("PRAGMA journal_mode = WAL")
     con.executescript(SCHEMA)
     for tabela, colunas in _NOVAS_COLUNAS.items():
         existentes = {r["name"] for r in con.execute(f"PRAGMA table_info({tabela})")}
@@ -69,7 +72,7 @@ def connect(path=config.DB_PATH):
 
 
 def _now():
-    return datetime.now().isoformat(timespec="seconds")
+    return tempo.agora().isoformat(timespec="seconds")
 
 
 # ---------------------------------------------------------------- imóveis e medidores
@@ -126,22 +129,28 @@ def get_medidor(con, medidor_id):
 # ---------------------------------------------------------------- leituras
 def save_reading(con, result, medidor_id=None, referencia=None, valor_real=None,
                  arquivo=None, tipo_medidor=None, recorte_jpg=None):
-    cur = con.execute(
-        "INSERT INTO leituras (criado_em, medidor_id, referencia, arquivo, tipo_medidor, leitura, valor_real,"
-        " confianca, conf_deteccao, bbox, tempo_ms, recorte) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (_now(), medidor_id, referencia, arquivo, tipo_medidor, result.get("reading"), valor_real,
-         result.get("confidence"), result.get("det_confidence"), json.dumps(result.get("bbox")),
-         result.get("time_ms"), recorte_jpg),
-    )
-    con.commit()
+    """Grava a leitura. Um medidor tem uma leitura por mês: se o mês já tiver uma, ela é
+    substituída (na mesma transação), para o histórico e o consumo não contarem o mês duas vezes."""
+    with con:
+        if medidor_id is not None and referencia is not None:
+            con.execute("DELETE FROM leituras WHERE medidor_id = ? AND referencia = ?", (medidor_id, referencia))
+        cur = con.execute(
+            "INSERT INTO leituras (criado_em, medidor_id, referencia, arquivo, tipo_medidor, leitura, valor_real,"
+            " confianca, conf_deteccao, bbox, tempo_ms, recorte) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (_now(), medidor_id, referencia, arquivo, tipo_medidor, result.get("reading"), valor_real,
+             result.get("confidence"), result.get("det_confidence"), json.dumps(result.get("bbox")),
+             result.get("time_ms"), recorte_jpg),
+        )
     return cur.lastrowid
 
 
 def list_readings(con, medidor_id=None, limit=500):
-    """Leituras confirmadas, da mais antiga para a mais recente (ordem do histórico de consumo)."""
-    sql = ("SELECT id, criado_em, medidor_id, referencia, arquivo, tipo_medidor, leitura, valor_real, confianca,"
-           " conf_deteccao, tempo_ms FROM leituras"
-           + (" WHERE medidor_id = ?" if medidor_id else "") + " ORDER BY referencia, criado_em LIMIT ?")
+    """As `limit` leituras MAIS RECENTES, devolvidas da mais antiga para a mais recente
+    (a ordem do histórico de consumo)."""
+    filtro = " WHERE medidor_id = ?" if medidor_id else ""
+    sql = ("SELECT * FROM (SELECT id, criado_em, medidor_id, referencia, arquivo, tipo_medidor, leitura, valor_real,"
+           " confianca, conf_deteccao, tempo_ms FROM leituras" + filtro +
+           " ORDER BY referencia DESC, criado_em DESC, id DESC LIMIT ?) ORDER BY referencia, criado_em, id")
     return [dict(r) for r in con.execute(sql, (medidor_id, limit) if medidor_id else (limit,))]
 
 
