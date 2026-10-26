@@ -65,8 +65,13 @@ def historico(medidor, leituras):
     return linhas
 
 
-def validar(leitura, tipo, confianca=None, anterior=None, consumos_anteriores=(), referencia_repetida=False):
-    """Confere uma leitura antes de salvar. Retorna a lista de alertas (vazia = tudo certo)."""
+def validar(leitura, tipo, confianca=None, anterior=None, consumos_anteriores=(), referencia_repetida=False,
+            posterior=None):
+    """Confere uma leitura antes de salvar. Retorna a lista de alertas (vazia = tudo certo).
+
+    `posterior` = a leitura do mês seguinte, quando a pessoa lança um mês que ficou para trás:
+    o valor novo não pode ser maior que ela, senão o consumo daquele mês ficaria negativo.
+    """
     alertas = []
     un = UNIDADE.get(tipo, "")
 
@@ -79,7 +84,11 @@ def validar(leitura, tipo, confianca=None, anterior=None, consumos_anteriores=()
         alertas.append(Alerta("aviso", f"Confiança baixa ({confianca * 100:.0f}%). Confira os números com o medidor."))
 
     if referencia_repetida:
-        alertas.append(Alerta("aviso", "Já existe uma leitura deste medidor neste mês."))
+        alertas.append(Alerta("aviso", "Já existe uma leitura deste medidor neste mês: ela será substituída ao salvar."))
+
+    if posterior is not None and consumo(leitura, posterior) is None:
+        alertas.append(Alerta("erro", f"A leitura é maior que a do mês seguinte ({posterior}). "
+                                      "Confira o mês de referência e os números."))
 
     if anterior is None:
         alertas.append(Alerta("info", "Primeira leitura deste medidor: o consumo será calculado a partir da próxima."))
@@ -95,8 +104,9 @@ def validar(leitura, tipo, confianca=None, anterior=None, consumos_anteriores=()
     if c == 0:
         alertas.append(Alerta("aviso", "Consumo zero no período: imóvel desocupado ou medidor parado?"))
 
-    m = media(list(consumos_anteriores)[-6:])
-    if m and len([v for v in consumos_anteriores if v is not None]) >= 2:
+    recentes = [v for v in consumos_anteriores if v is not None][-6:]     # até 6 meses válidos
+    m = media(recentes)
+    if m and len(recentes) >= 2:
         if c > 1.5 * m:
             extra = " Possível vazamento." if tipo == "agua" else ""
             alertas.append(Alerta("aviso", f"Consumo {c / m * 100 - 100:.0f}% acima da média dos meses anteriores ({m:.0f} {un}).{extra}"))
