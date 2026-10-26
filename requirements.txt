@@ -1,15 +1,17 @@
 # PyTorch só de CPU (o app e a nuvem do Streamlit não usam GPU). Para treinar com GPU,
 # instale antes o PyTorch com CUDA (veja pytorch.org) e depois este arquivo.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch
+# torch sem versão exata de propósito: no Colab, uma versão fixa trocaria o PyTorch com GPU por um de CPU
+torch>=2.6
 torchvision
-ultralytics>=8.3
-opencv-python-headless>=4.9
-numpy
-pandas
-pillow
-pyyaml
-streamlit>=1.45
-fastapi
-uvicorn
-python-multipart
+# Streamlit e Ultralytics mudam a API com frequência: versões fixas, as testadas no app publicado
+ultralytics==8.4.184
+streamlit==1.66.1
+opencv-python-headless>=4.9,<6
+numpy>=2,<3
+pandas>=2,<4
+pillow>=10,<13
+pyyaml>=6,<7
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+python-multipart>=0.0.9,<1
