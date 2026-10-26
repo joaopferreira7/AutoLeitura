@@ -71,6 +71,15 @@ if __name__ == "__main__":
     if args.demo:
         env["AUTOLEITURA_DEMO"] = "1"
 
+    # Porta ocupada (o app já aberto em outro terminal, ou outro programa): o Streamlit não subiria
+    # e o navegador abriria o que estiver nessa porta.
+    try:
+        socket.create_connection(("127.0.0.1", PORTA), timeout=1).close()
+        sys.exit(f"\n  A porta {PORTA} já está em uso: o app já está aberto em outro terminal?\n"
+                 f"  Abra http://localhost:{PORTA} ou feche o outro programa e rode de novo.\n")
+    except OSError:
+        pass
+
     ip = ip_local()
     print("\n  AutoLeitura")
     print(f"  No computador:  http://localhost:{PORTA}")
