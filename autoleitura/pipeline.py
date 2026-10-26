@@ -1,4 +1,5 @@
 """Pipeline completo: foto -> pré-processamento -> detecção -> recorte -> reconhecimento -> leitura."""
+import threading
 import time
 
 import cv2
@@ -41,21 +42,27 @@ class AutoLeitura:
         if dig_weights and dig_weights.exists():          # sem o YOLO de dígitos, usa só a CRNN
             from .digits import DigitReader
             self.digit_reader = DigitReader(dig_weights)
+        # Os modelos são compartilhados por todos os usuários do app, e a inferência do Ultralytics
+        # não é garantida para chamadas simultâneas na mesma instância: uma leitura por vez.
+        self._trava = threading.Lock()
 
     def read(self, img):
         """Recebe uma imagem BGR e devolve um dicionário com a leitura e as informações de apoio."""
+        with self._trava:
+            return self._read(img)
+
+    def _read(self, img):
         t0 = time.perf_counter()
         small, scale = limit_size(img)
         box, det_conf = self.detector.detect(small)
 
-        if box is None:
-            return {"reading": None, "confidence": 0.0, "det_confidence": 0.0, "bbox": None,
+        box = tuple(v / scale for v in box) if box is not None else None   # volta para a escala original
+        crop = crop_box(img, box) if box is not None else None
+        if crop is None or min(crop.shape[:2]) < 4:          # nada achado, ou caixa degenerada na borda da foto
+            return {"reading": None, "confidence": 0.0, "det_confidence": det_conf if box else 0.0, "bbox": None,
                     "digit_confidences": [], "crop": None, "leitores": {},
                     "time_ms": (time.perf_counter() - t0) * 1000,
                     "warning": "Contador não encontrado na imagem."}
-
-        box = tuple(v / scale for v in box)                 # volta para a escala original
-        crop = crop_box(img, box)
         crnn = self.recognizer.read(crop)
         leitores = {"CRNN": crnn[0]}
         if self.digit_reader is not None:
