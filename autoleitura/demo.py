@@ -4,19 +4,12 @@
 "Casa de demonstração" tem seis meses de leituras, para mostrar o gráfico de consumo,
 a conta estimada e o alerta de vazamento.
 """
-from datetime import date
-
-from . import db
+from . import db, tempo
 
 
 def meses_anteriores(n):
     """Os n meses antes do mês atual, do mais antigo para o mais recente, no formato AAAA-MM."""
-    hoje = date.today()
-    out = []
-    for i in range(n, 0, -1):
-        y, m = divmod(hoje.year * 12 + hoje.month - 1 - i, 12)
-        out.append(f"{y:04d}-{m + 1:02d}")
-    return out
+    return list(reversed(tempo.meses_ate(n, incluir_atual=False)))
 
 
 def criar_se_vazio(con):
