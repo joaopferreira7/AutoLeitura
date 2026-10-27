@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from . import config
 
-MAX_CONTADOR = 10 ** config.NUM_DIGITS          # contador de 5 dígitos volta a zero depois de 99999
 UNIDADE = {"energia": "kWh", "agua": "m³"}
 CONFIANCA_MINIMA = 0.6
 
@@ -22,6 +21,8 @@ class Alerta:
 def consumo(anterior, atual):
     """Consumo entre duas leituras. Trata a virada do contador (ex.: 99950 -> 00030 = 80).
 
+    O contador volta a zero conforme o número de dígitos da leitura anterior:
+    depois de 99999 (5 dígitos) ou de 999999 (6 dígitos, comum em medidores de água).
     Retorna None quando não há leitura anterior ou quando a leitura atual é menor
     que a anterior sem ser uma virada plausível (leitura inválida).
     """
@@ -30,8 +31,9 @@ def consumo(anterior, atual):
     a, b = int(anterior), int(atual)
     if b >= a:
         return b - a
-    if a > 0.9 * MAX_CONTADOR and b < 0.1 * MAX_CONTADOR:
-        return b + MAX_CONTADOR - a
+    limite = 10 ** len(str(anterior))
+    if a > 0.9 * limite and b < 0.1 * limite:
+        return b + limite - a
     return None
 
 
@@ -77,8 +79,10 @@ def validar(leitura, tipo, confianca=None, anterior=None, consumos_anteriores=()
 
     if not leitura or not leitura.isdigit():
         return [Alerta("erro", "A leitura deve conter apenas números.")]
-    if len(leitura) != config.NUM_DIGITS:
-        alertas.append(Alerta("erro", f"A leitura tem {len(leitura)} dígitos; o contador tem {config.NUM_DIGITS}."))
+    aceitos = config.DIGITOS.get(tipo, (config.NUM_DIGITS,))
+    if len(leitura) not in aceitos:
+        esperado = " ou ".join(str(n) for n in aceitos)
+        alertas.append(Alerta("erro", f"A leitura tem {len(leitura)} dígitos; o contador tem {esperado}."))
 
     if confianca is not None and confianca < CONFIANCA_MINIMA:
         alertas.append(Alerta("aviso", f"Confiança baixa ({confianca * 100:.0f}%). Confira os números com o medidor."))

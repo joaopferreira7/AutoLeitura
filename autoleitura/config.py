@@ -13,11 +13,16 @@ RAW_DIR = DATA_DIR / "raw"            # dataset original (UFPR-AMR, Roboflow, si
 DET_DIR = DATA_DIR / "det"            # dataset no formato YOLO para o detector do contador
 REC_DIR = DATA_DIR / "rec"            # recortes do contador + labels.csv para o reconhecedor
 DIG_DIR = DATA_DIR / "dig"            # recortes do contador no formato YOLO, um box por dígito (classes 0–9)
+# Medidores de água (dataset word-wheel do Dryad): segmentador da janela dos dígitos e CRNN próprios
+AGUA_DET_DIR = DATA_DIR / "agua_det"
+AGUA_REC_DIR = DATA_DIR / "agua_rec"
 
 WEIGHTS_DIR = ROOT / "weights"
 DET_WEIGHTS = WEIGHTS_DIR / "detector.pt"
 REC_WEIGHTS = WEIGHTS_DIR / "recognizer.pt"
 DIG_WEIGHTS = WEIGHTS_DIR / "digits.pt"
+AGUA_SEG_WEIGHTS = WEIGHTS_DIR / "segmentador_agua.pt"
+AGUA_REC_WEIGHTS = WEIGHTS_DIR / "recognizer_agua.pt"
 
 # AUTOLEITURA_DB permite usar outro arquivo (ex.: um banco de demonstração para a apresentação)
 DB_PATH = Path(os.environ.get("AUTOLEITURA_DB", ROOT / "autoleitura.db"))
@@ -34,6 +39,8 @@ REC_HEIGHT = 32
 REC_WIDTH = 160
 ALPHABET = "0123456789"               # índice 0 do CTC é o "blank"; dígitos são 1..10
 NUM_DIGITS = 5                        # contadores do UFPR-AMR têm 5 dígitos
+# Quantidades de dígitos aceitas em cada tipo de medidor (o dataset de água tem contadores de 5 e de 6)
+DIGITOS = {"energia": (5,), "agua": (5, 6)}
 
 # Margem adicionada ao recorte do contador antes do reconhecimento
 CROP_MARGIN = 0.08
