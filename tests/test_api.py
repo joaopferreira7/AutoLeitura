@@ -44,3 +44,13 @@ def test_leitura_de_uma_foto(medidor_sintetico):
         corpo = r.json()
         assert set(corpo) >= {"leitura", "confianca", "leitores", "caixa_contador"}
         assert 0 <= corpo["confianca"] <= 1
+
+
+def test_saude_informa_os_dois_tipos():
+    prontos = cliente.get("/saude").json()["modelos_prontos"]
+    assert set(prontos) == {"energia", "agua"}
+
+
+def test_tipo_de_medidor_invalido():
+    r = cliente.post("/leitura?tipo=gas", files={"foto": ("x.jpg", b"123", "image/jpeg")})
+    assert r.status_code == 422

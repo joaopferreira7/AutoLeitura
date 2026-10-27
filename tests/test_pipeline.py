@@ -73,3 +73,37 @@ def test_regressao_de_acuracia_em_fotos_reais(sistema):
     fotos = fotos_reais(30)
     acertos = sum(sistema.read(load_image(jpg.read_bytes()))["reading"] == leitura for jpg, leitura in fotos)
     assert acertos / len(fotos) >= 0.85, f"só {acertos}/{len(fotos)} leituras certas"
+
+
+# ---------------------------------------------------------------- medidores de água
+from autoleitura import config  # noqa: E402
+from autoleitura.pipeline import para_tipo  # noqa: E402
+
+PESOS_AGUA = config.AGUA_SEG_WEIGHTS.exists() and config.AGUA_REC_WEIGHTS.exists()
+TESTE_AGUA = config.AGUA_REC_DIR / "labels.csv"
+agua = pytest.mark.skipif(not PESOS_AGUA, reason="pesos de água ausentes")
+
+
+@agua
+def test_pipeline_de_agua_le_nos_dois_sentidos_e_aceita_6_digitos():
+    sistema_agua = para_tipo("agua")
+    assert sistema_agua.digitos == (5, 6) and sistema_agua.digit_reader is None
+    assert sistema_agua.recognizer.nos_dois_sentidos
+    res = sistema_agua.read(np.zeros((480, 640, 3), np.uint8))
+    assert set(res) >= {"reading", "confidence", "warning"}
+
+
+@agua
+@pytest.mark.skipif(not TESTE_AGUA.exists(), reason="dataset de água ausente em data/agua_rec")
+def test_regressao_crnn_de_agua_em_recortes_reais():
+    """100 recortes do teste oficial do dataset de água (de pé e de cabeça para baixo)."""
+    import csv
+
+    import cv2
+
+    from autoleitura.recognizer import Recognizer
+    rec = Recognizer(config.AGUA_REC_WEIGHTS, nos_dois_sentidos=True)
+    rows = [r for r in csv.DictReader(open(TESTE_AGUA, encoding="utf-8")) if r["split"] == "test"][::24][:100]
+    acertos = sum(rec.read(cv2.imread(str(config.AGUA_REC_DIR / "images" / r["arquivo"])))[0] == r["leitura"]
+                  for r in rows)
+    assert acertos / len(rows) >= 0.80, f"só {acertos}/{len(rows)} leituras certas"

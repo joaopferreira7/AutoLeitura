@@ -127,4 +127,15 @@ def test_pesos_locais_conferem_com_o_release():
     if faltando:
         pytest.skip("pesos ausentes")
     for p in pesos.PESOS:
-        assert pesos.sha256(p) == pesos.SHA256[p.name], f"{p.name} difere do Release modelos-v1"
+        assert pesos.sha256(p) == pesos.SHA256[p.name], f"{p.name} difere do Release em pesos.RELEASE_URL"
+
+
+def test_endireitar_janela_girada():
+    """Uma faixa clara girada 30° vira um recorte horizontal com o lado maior como largura."""
+    from autoleitura.preprocess import endireitar
+    img = np.zeros((400, 400, 3), np.uint8)
+    caixa = cv2.boxPoints(((200, 200), (200, 50), 30)).astype(np.int32)
+    cv2.fillPoly(img, [caixa], (255, 255, 255))
+    rec = endireitar(img, caixa, folga=0)
+    assert rec.shape[1] > rec.shape[0] * 3                 # bem mais largo que alto
+    assert rec.mean() > 230                                # quase todo dentro da faixa clara

@@ -101,3 +101,16 @@ def test_metricas_de_leitura():
     assert m["reading_acc"] == pytest.approx(1 / 3)
     assert m["digit_acc"] == pytest.approx(9 / 15)          # 5 + 4 + 0 (tamanho errado conta tudo como erro)
     assert m["mean_lev"] == pytest.approx(2 / 3)
+
+
+# ---------------------------------------------------------------- medidores de água (5 ou 6 dígitos)
+def test_virada_do_contador_de_6_digitos():
+    assert consumo.consumo("999950", "000030") == 80
+    assert consumo.consumo("099950", "000030") is None        # 6 dígitos, longe do fim: não é virada
+
+
+def test_quantidade_de_digitos_depende_do_tipo():
+    assert consumo.validar("001350", "agua", anterior="001200") == []            # 6 dígitos vale na água
+    assert consumo.validar("01350", "agua", anterior="01200") == []              # 5 também
+    assert "erro" in niveis(consumo.validar("001350", "energia", anterior="01200"))   # na energia, não
+    assert "erro" in niveis(consumo.validar("0001350", "agua", anterior="001200"))    # 7 nunca
