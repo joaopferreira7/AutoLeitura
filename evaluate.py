@@ -32,7 +32,7 @@ def concordancia_agua(split, n=1000):
     sys.path.insert(0, str(config.ROOT / "scripts"))
     from prepare_agua import poligono_da_mascara
 
-    from autoleitura.pipeline import para_tipo
+    from autoleitura.pipeline import combine, para_tipo
     from autoleitura.preprocess import endireitar
 
     raiz = config.RAW_DIR / "agua" / "Word-Wheel_Water_Meter_Dataset" / "detection" / split
@@ -46,7 +46,11 @@ def concordancia_agua(split, n=1000):
         img = cv2.imread(str(p))
         h, w = img.shape[:2]
         poligono = poligono_da_mascara(raiz / f"{split}_seg_label" / p.name)
-        referencia = sistema.recognizer.read(endireitar(img, [(x * w, y * h) for x, y in poligono]))[0]
+        janela = endireitar(img, [(x * w, y * h) for x, y in poligono])
+        referencia = sistema.recognizer.read(janela)
+        if sistema.segunda is not None:          # mesma combinação de leitores do pipeline
+            referencia = combine(sistema.segunda.read(janela), referencia, sistema.digitos)
+        referencia = referencia[0]
         res = sistema.read(img)
         validas += res["reading"] is not None and len(res["reading"]) in sistema.digitos
         iguais += res["reading"] == referencia
@@ -87,8 +91,17 @@ def avaliar_agua(split):
     aceitas = [t == g for (t, c, _), g in zip(lidos, gts) if c >= CONFIANCA_MINIMA]
     print(f"Confiança da CRNN >= {CONFIANCA_MINIMA:.0%}: {len(aceitas) / len(gts):.1%} dos recortes,"
           f" com {sum(aceitas) / max(1, len(aceitas)):.2%} de acerto")
+    if config.AGUA_REC2_WEIGHTS.exists():          # com a segunda CRNN, como no app
+        from autoleitura.pipeline import combine
+        segunda = Recognizer(config.AGUA_REC2_WEIGHTS, nos_dois_sentidos=True)
+        lidos = [combine(segunda.read(c), l, config.DIGITOS["agua"]) for c, l in zip(crops, lidos)]
+        m2 = evaluate_readings([t for t, _, _ in lidos], gts)
+        aceitas = [t == g for (t, c, _), g in zip(lidos, gts) if c >= CONFIANCA_MINIMA]
+        print(f"Duas CRNNs (como no app)  leitura completa = {m2['reading_acc']:.4f}  dígito = {m2['digit_acc']:.4f};"
+              f" confiança >= {CONFIANCA_MINIMA:.0%}: {len(aceitas) / len(gts):.1%} dos recortes,"
+              f" com {sum(aceitas) / max(1, len(aceitas)):.2%} de acerto")
     con = db.connect()
-    db.save_evaluation(con, f"{split} água (CRNN, dois sentidos)", m2, det_map50=float(det.box.map50))
+    db.save_evaluation(con, f"{split} água (CRNNs, dois sentidos)", m2, det_map50=float(det.box.map50))
     print(f"\nMétricas gravadas em {config.DB_PATH}")
 
 
