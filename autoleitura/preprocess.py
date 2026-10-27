@@ -54,6 +54,26 @@ def crop_box(img, box, margin=config.CROP_MARGIN):
     return img[y1:y2, x1:x2]
 
 
+def endireitar(img, pontos, folga=0.04):
+    """Recorta e endireita uma região girada (a janela dos dígitos de um hidrômetro).
+
+    Ajusta um retângulo girado aos pontos do contorno e aplica a perspectiva para deixá-lo
+    na horizontal, com o lado maior como largura. O sentido (de pé ou de cabeça para baixo)
+    fica indefinido: a CRNN de água lê o recorte nos dois sentidos.
+    """
+    pts = np.asarray(pontos, dtype=np.float32).reshape(-1, 2)
+    (cx, cy), (w, h), ang = cv2.minAreaRect(pts)
+    w, h = w * (1 + folga), h * (1 + 2 * folga)
+    caixa = cv2.boxPoints(((cx, cy), (w, h), ang))
+    if w < h:                                    # deixa o lado maior na horizontal
+        w, h = h, w
+        caixa = np.roll(caixa, 1, axis=0)
+    w, h = max(int(round(w)), 1), max(int(round(h)), 1)
+    destino = np.float32([[0, h], [0, 0], [w, 0], [w, h]])
+    m = cv2.getPerspectiveTransform(caixa.astype(np.float32), destino)
+    return cv2.warpPerspective(img, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
 def deskew(crop):
     """Retificação: estima a inclinação dos dígitos e gira o recorte para deixá-los na horizontal.
 
