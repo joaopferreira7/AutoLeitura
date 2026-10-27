@@ -9,3 +9,4 @@ yolo*.pt
 check.png
 logs/
 .pytest_cache/
+apresentacao/
