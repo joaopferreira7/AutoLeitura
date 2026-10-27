@@ -4,6 +4,7 @@ A CRNN lê a sequência inteira de dígitos do recorte, sem precisar segmentar
 cada dígito: a CNN extrai características ao longo da largura, a BiLSTM modela
 a sequência e a perda CTC alinha a saída com o rótulo (ex.: "01234").
 """
+import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -64,17 +65,24 @@ def ctc_greedy_decode(log_probs):
 class Recognizer:
     """Wrapper de inferência: recorte BGR cru do contador -> (leitura, confiança, confiança por dígito)."""
 
-    def __init__(self, weights=config.REC_WEIGHTS, device=None):
+    def __init__(self, weights=config.REC_WEIGHTS, device=None, nos_dois_sentidos=False):
+        """nos_dois_sentidos: lê o recorte também girado 180° e fica com a leitura mais confiante
+        (hidrômetros fotografados de cabeça para baixo)."""
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model = CRNN().to(self.device)
         state = torch.load(weights, map_location=self.device)
         self.model.load_state_dict(state["model"] if "model" in state else state)
         self.model.eval()
+        self.nos_dois_sentidos = nos_dois_sentidos
 
     @torch.no_grad()
     def read(self, crop):
-        x = torch.from_numpy(to_recognizer_input(prepare_crop(crop)))[None].to(self.device)
-        log_probs = self.model(x).log_softmax(2)[0].cpu()
-        text, confs = ctc_greedy_decode(log_probs)
-        conf = float(np.prod(confs)) if confs else 0.0
-        return text, conf, confs
+        recortes = [crop, cv2.rotate(crop, cv2.ROTATE_180)] if self.nos_dois_sentidos else [crop]
+        x = torch.from_numpy(np.stack([to_recognizer_input(prepare_crop(c)) for c in recortes])).to(self.device)
+        melhor = None
+        for log_probs in self.model(x).log_softmax(2).cpu():
+            text, confs = ctc_greedy_decode(log_probs)
+            conf = float(np.prod(confs)) if confs else 0.0
+            if melhor is None or conf > melhor[1]:
+                melhor = (text, conf, confs)
+        return melhor
