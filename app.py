@@ -10,7 +10,7 @@ import cv2
 import pandas as pd
 import streamlit as st
 
-from autoleitura import config, consumo, db, demo, pesos, tempo
+from autoleitura import backup, config, consumo, db, demo, pesos, tempo
 from autoleitura.preprocess import load_image
 
 st.set_page_config(page_title="AutoLeitura", page_icon="🔢", layout="centered")
@@ -265,6 +265,26 @@ def page_consumo():
                 st.rerun()
 
 
+def secao_backup(con):
+    st.divider()
+    with st.expander("💾 Backup dos dados"):
+        if NA_NUVEM:
+            st.warning("Na nuvem gratuita os dados são apagados quando o app reinicia. Baixe um backup de vez em quando.")
+        st.download_button("Baixar backup (.db)", backup.gerar(con), file_name=f"autoleitura_{tempo.agora():%Y-%m-%d}.db",
+                           mime="application/octet-stream", width="stretch")
+        arq = st.file_uploader("Restaurar um backup", type=["db"], key="restaurar")
+        if arq is not None:
+            st.write("Isso **substitui todos os dados atuais** pelos do backup.")
+            if st.button("Restaurar backup", type="primary"):
+                try:
+                    backup.restaurar(con, arq.getvalue())
+                except ValueError as e:
+                    st.error(str(e))
+                else:
+                    st.toast("Backup restaurado!", icon="✅")
+                    st.rerun()
+
+
 def page_imoveis():
     st.title("🏠 Imóveis e medidores")
     con = get_db()
@@ -279,6 +299,7 @@ def page_imoveis():
 
     imoveis = db.list_imoveis(con)
     if not imoveis:
+        secao_backup(con)          # banco vazio: é aqui que se restaura um backup
         return
 
     with st.expander("➕ Novo medidor", expanded=not db.list_medidores(con)):
@@ -332,6 +353,8 @@ def page_imoveis():
                 db.delete_imovel(con, im["id"])
                 st.rerun()
 
+    secao_backup(con)
+
 
 def page_modelo():
     st.title("🧠 Desempenho do modelo")
@@ -360,6 +383,13 @@ def page_modelo():
     c1.metric("Leituras confirmadas", len(rows))
     c2.metric("Lidas corretamente pelo modelo", f"{acertos / len(rows) * 100:.0f}%",
               help="Leituras em que o usuário não precisou corrigir nenhum número.")
+
+    n = len(backup.correcoes(con))
+    if n:
+        st.download_button(f"Baixar as {n} leituras confirmadas para re-treinar (.zip)", backup.zip_correcoes(con),
+                           file_name="autoleitura_correcoes.zip", mime="application/zip", width="stretch")
+        st.caption("Recortes com o valor confirmado. No computador do treino: "
+                   "`python scripts/importar_correcoes.py autoleitura_correcoes.zip` e depois `python train_recognizer.py`.")
 
 
 pagina_leitura = st.Page(page_nova_leitura, title="Nova leitura", icon="📷", default=True)
