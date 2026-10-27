@@ -105,7 +105,9 @@ O app em https://autoleitura.streamlit.app é publicado direto deste repositóri
 Python 3.12) e se atualiza sozinho a cada push. Na nuvem:
 - o `requirements.txt` instala o PyTorch só de CPU e o `packages.txt` instala as bibliotecas de sistema do OpenCV;
 - os pesos são baixados do Release na primeira execução;
-- o banco começa com os imóveis de demonstração e é apagado quando o app reinicia (não guarde dados reais lá).
+- o banco começa com os imóveis de demonstração e é apagado quando o app reinicia (não guarde dados reais lá);
+- **depois de um push que mude arquivos de `autoleitura/`**, abra o app, clique em *Manage app* → ⋮ → *Reboot app*:
+  a nuvem recarrega o `app.py` mas pode manter a versão antiga dos módulos em memória (erro `AttributeError`).
 
 A pasta `deploy/huggingface` tem uma versão em Docker para o Hugging Face Spaces, que hoje exige a assinatura PRO.
 
