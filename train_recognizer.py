@@ -5,6 +5,7 @@ Usa os recortes gerados por scripts/prepare_data.py (data/rec). A augmentation
 
   python train_recognizer.py --epochs 60          # Colab / GPU
   python train_recognizer.py --epochs 10          # teste rápido em CPU
+  python train_recognizer.py --tipo agua --epochs 40   # medidores de água
 """
 import argparse
 import csv
@@ -21,7 +22,11 @@ from autoleitura.preprocess import prepare_crop, shrink_crop, to_recognizer_inpu
 from autoleitura.recognizer import CRNN, ctc_greedy_decode, encode
 
 
-def augment(img, rng):
+def augment(img, rng, girar180=False):
+    # Hidrômetros em caixas no chão são fotografados de qualquer lado: no dataset de água, parte dos
+    # recortes está de cabeça para baixo. Girar metade dos recortes ensina a CRNN a ler nos dois sentidos.
+    if girar180 and rng.random() < 0.5:
+        img = cv2.rotate(img, cv2.ROTATE_180)
     h, w = img.shape[:2]
     # rotação leve + pequena distorção de perspectiva
     ang = rng.uniform(-4, 4)
@@ -45,22 +50,27 @@ def augment(img, rng):
     return img
 
 
+DADOS = {"energia": (config.REC_DIR, config.REC_WEIGHTS), "agua": (config.AGUA_REC_DIR, config.AGUA_REC_WEIGHTS)}
+
+
 class CropDataset(Dataset):
-    def __init__(self, split, train=False):
-        with open(config.REC_DIR / "labels.csv", encoding="utf-8") as f:
+    def __init__(self, split, train=False, pasta=config.REC_DIR, girar180=False):
+        with open(pasta / "labels.csv", encoding="utf-8") as f:
             self.rows = [r for r in csv.DictReader(f) if r["split"] == split]
         self.train = train
+        self.pasta = pasta
+        self.girar180 = girar180
 
     def __len__(self):
         return len(self.rows)
 
     def __getitem__(self, i):
         r = self.rows[i]
-        img = shrink_crop(cv2.imread(str(config.REC_DIR / "images" / r["arquivo"])))
+        img = shrink_crop(cv2.imread(str(self.pasta / "images" / r["arquivo"])))
         if self.train:
             # gerador novo a cada amostra, semeado pelo torch: cada worker do DataLoader tem
             # sua própria semente, então as augmentations não se repetem entre workers
-            img = augment(img, np.random.default_rng(torch.randint(0, 2**31, (1,)).item()))
+            img = augment(img, np.random.default_rng(torch.randint(0, 2**31, (1,)).item()), self.girar180)
         # mesmo tratamento da inferência (Recognizer.read)
         return torch.from_numpy(to_recognizer_input(prepare_crop(img))), r["leitura"]
 
@@ -85,6 +95,7 @@ def predict(model, loader, device):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--tipo", choices=list(DADOS), default="energia")
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -92,8 +103,10 @@ def main():
     ap.add_argument("--samples-per-epoch", type=int, default=4000)
     args = ap.parse_args()
 
+    pasta, saida = DADOS[args.tipo]
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    train_ds, val_ds = CropDataset("train", train=True), CropDataset("val")
+    train_ds = CropDataset("train", train=True, pasta=pasta, girar180=args.tipo == "agua")
+    val_ds = CropDataset("val", pasta=pasta)
     print(f"treino={len(train_ds)}  val={len(val_ds)}  device={device}")
     # O CTC precisa de alguns milhares de passos para sair do "platô do blank". Com datasets
     # pequenos, cada época sorteia pelo menos --samples-per-epoch recortes (cada um com augmentation diferente).
@@ -130,9 +143,9 @@ def main():
               f"val leitura={m['reading_acc']:.4f}  dígito={m['digit_acc']:.4f}  lev={m['mean_lev']:.3f}")
         if m["reading_acc"] > best:
             best = m["reading_acc"]
-            torch.save({"model": model.state_dict(), "epoch": epoch, "val": m}, config.REC_WEIGHTS)
+            torch.save({"model": model.state_dict(), "epoch": epoch, "val": m}, saida)
 
-    print(f"\nMelhor acurácia de leitura na validação: {best:.4f}  ->  {config.REC_WEIGHTS}")
+    print(f"\nMelhor acurácia de leitura na validação: {best:.4f}  ->  {saida}")
 
 
 if __name__ == "__main__":
