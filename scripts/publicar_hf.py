@@ -26,7 +26,8 @@ from autoleitura import config  # noqa: E402
 ROOT = config.ROOT
 ARQUIVOS = ["app.py", "scripts/criar_demo.py", ".streamlit/config.toml"]
 PASTAS = ["autoleitura"]
-PESOS = [config.DET_WEIGHTS, config.REC_WEIGHTS, config.DIG_WEIGHTS, config.AGUA_SEG_WEIGHTS, config.AGUA_REC_WEIGHTS]
+PESOS = [config.DET_WEIGHTS, config.REC_WEIGHTS, config.DIG_WEIGHTS, config.AGUA_SEG_WEIGHTS, config.AGUA_REC_WEIGHTS,
+         config.AGUA_REC2_WEIGHTS]
 
 
 def montar(destino):

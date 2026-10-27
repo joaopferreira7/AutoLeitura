@@ -55,14 +55,15 @@ def get_system(tipo):
 @st.cache_resource(show_spinner="Baixando os modelos treinados (só na primeira vez)...")
 def baixar_pesos():
     try:
-        pesos.baixar(progresso=lambda _: None)
+        pesos.baixar(progresso=lambda _: None, atualizar=NA_NUVEM)
         return None
     except Exception as e:          # sem internet, GitHub fora do ar etc.
         return str(e)
 
 
 def modelos_prontos(tipo):
-    erro = baixar_pesos() if pesos.faltando() else None
+    # na nuvem, confere uma vez por processo se os pesos no disco são os do Release atual
+    erro = baixar_pesos() if NA_NUVEM or pesos.faltando() else None
     if erro:
         st.error(f"Não foi possível baixar os modelos: {erro}")
     return pesos.prontos(tipo)

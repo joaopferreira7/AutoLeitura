@@ -122,6 +122,20 @@ def test_download_corrompido_e_recusado(tmp_path, monkeypatch):
     assert not destino.exists() and not destino.with_suffix(".part").exists()
 
 
+def test_peso_de_versao_anterior_e_trocado_so_quando_pedido(tmp_path, monkeypatch):
+    destino = tmp_path / "detector.pt"
+    destino.write_bytes(b"versao antiga")
+    monkeypatch.setattr(config, "WEIGHTS_DIR", tmp_path)
+    monkeypatch.setattr(pesos, "PESOS", [destino])
+    monkeypatch.setattr(pesos, "SHA256", {"detector.pt": pesos.hashlib.sha256(b"versao nova").hexdigest()})
+    monkeypatch.setattr(pesos.urllib.request, "urlretrieve", lambda url, arq: open(arq, "wb").write(b"versao nova"))
+    pesos.baixar(progresso=lambda _: None)                     # localmente: não mexe
+    assert destino.read_bytes() == b"versao antiga"
+    assert pesos.desatualizados() == [destino]
+    pesos.baixar(progresso=lambda _: None, atualizar=True)     # na nuvem: troca
+    assert destino.read_bytes() == b"versao nova" and pesos.desatualizados() == []
+
+
 def test_pesos_locais_conferem_com_o_release():
     faltando = pesos.faltando()
     if faltando:
