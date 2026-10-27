@@ -6,6 +6,7 @@ Usa os recortes gerados por scripts/prepare_data.py (data/rec). A augmentation
   python train_recognizer.py --epochs 60          # Colab / GPU
   python train_recognizer.py --epochs 10          # teste rápido em CPU
   python train_recognizer.py --tipo agua --epochs 40   # medidores de água
+  python train_recognizer.py --tipo agua --peso-6 3 --semente 1 --saida weights/recognizer_agua_2.pt
 """
 import argparse
 import csv
@@ -14,7 +15,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset, RandomSampler
+from torch.utils.data import DataLoader, Dataset, RandomSampler, WeightedRandomSampler
 
 from autoleitura import config
 from autoleitura.metrics import evaluate_readings
@@ -101,16 +102,28 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--samples-per-epoch", type=int, default=4000)
+    ap.add_argument("--peso-6", type=float, default=1.0,
+                    help="sorteia leituras de 6 dígitos N vezes mais (são poucas no dataset de água)")
+    ap.add_argument("--semente", type=int, default=None, help="para treinar um segundo leitor diferente do primeiro")
+    ap.add_argument("--saida", default=None, help="arquivo dos pesos (padrão: o do --tipo)")
     args = ap.parse_args()
 
+    if args.semente is not None:
+        torch.manual_seed(args.semente)
     pasta, saida = DADOS[args.tipo]
+    saida = args.saida or saida
     device = "cuda" if torch.cuda.is_available() else "cpu"
     train_ds = CropDataset("train", train=True, pasta=pasta, girar180=args.tipo == "agua")
     val_ds = CropDataset("val", pasta=pasta)
     print(f"treino={len(train_ds)}  val={len(val_ds)}  device={device}")
     # O CTC precisa de alguns milhares de passos para sair do "platô do blank". Com datasets
     # pequenos, cada época sorteia pelo menos --samples-per-epoch recortes (cada um com augmentation diferente).
-    sampler = RandomSampler(train_ds, replacement=True, num_samples=max(len(train_ds), args.samples_per_epoch))
+    n_amostras = max(len(train_ds), args.samples_per_epoch)
+    if args.peso_6 != 1.0:
+        pesos = [args.peso_6 if len(r["leitura"]) == 6 else 1.0 for r in train_ds.rows]
+        sampler = WeightedRandomSampler(pesos, n_amostras, replacement=True)
+    else:
+        sampler = RandomSampler(train_ds, replacement=True, num_samples=n_amostras)
     # persistent_workers: no Windows, recriar os processos do DataLoader a cada época custa vários segundos
     extra = {"persistent_workers": True} if args.workers > 0 else {}
     train_dl = DataLoader(train_ds, args.batch, sampler=sampler, num_workers=args.workers, collate_fn=collate,
