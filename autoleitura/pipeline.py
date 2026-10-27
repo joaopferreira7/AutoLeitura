@@ -10,7 +10,7 @@ from .preprocess import crop_box, limit_size
 from .recognizer import Recognizer
 
 
-def combine(crnn, yolo):
+def combine(crnn, yolo, digitos=(config.NUM_DIGITS,)):
     """Junta as duas leituras do recorte. Regra escolhida no conjunto de validação do UFPR-AMR:
 
     - a leitura é a do YOLO de dígitos (93,8% na validação, contra 91,0% da CRNN);
@@ -18,10 +18,11 @@ def combine(crnn, yolo):
     - quando os dois leitores concordam (88,8% das fotos), a leitura está certa em 99,2% dos casos,
       então a confiança sobe; quando discordam, ela cai e o app pede conferência.
 
+    Na água, a mesma regra junta duas CRNNs treinadas com sementes diferentes (`yolo` é a principal).
     Cada leitura é (texto, confiança, confiança por dígito). Retorna (texto, confiança, conf. por dígito).
     """
     (tc, cc, dcc), (ty, cy, dcy) = crnn, yolo
-    if len(ty) == config.NUM_DIGITS or len(tc) != config.NUM_DIGITS:
+    if len(ty) in digitos or len(tc) not in digitos:
         text, digit_confs = ty, dcy
     else:
         text, digit_confs = tc, dcc
@@ -38,15 +39,17 @@ def para_tipo(tipo):
     """O pipeline com os modelos do tipo de medidor ('energia' ou 'agua')."""
     if tipo == "agua":
         # o dataset de água não tem a caixa de cada dígito (sem YOLO de dígitos); a janela é segmentada
-        # e endireitada, e a CRNN lê nos dois sentidos (hidrômetros fotografados de cabeça para baixo)
+        # e endireitada, e a CRNN lê nos dois sentidos (hidrômetros fotografados de cabeça para baixo).
+        # Uma segunda CRNN, treinada com outra semente, dá a segunda opinião.
         return AutoLeitura(None, config.AGUA_REC_WEIGHTS, None, digitos=config.DIGITOS["agua"],
-                           nos_dois_sentidos=True, seg_weights=config.AGUA_SEG_WEIGHTS)
+                           nos_dois_sentidos=True, seg_weights=config.AGUA_SEG_WEIGHTS,
+                           segunda_crnn=config.AGUA_REC2_WEIGHTS)
     return AutoLeitura(config.DET_WEIGHTS, config.REC_WEIGHTS, config.DIG_WEIGHTS, digitos=config.DIGITOS["energia"])
 
 
 class AutoLeitura:
     def __init__(self, det_weights=config.DET_WEIGHTS, rec_weights=config.REC_WEIGHTS, dig_weights=config.DIG_WEIGHTS,
-                 digitos=(config.NUM_DIGITS,), nos_dois_sentidos=False, seg_weights=None):
+                 digitos=(config.NUM_DIGITS,), nos_dois_sentidos=False, seg_weights=None, segunda_crnn=None):
         self.digitos = digitos
         self.segmenter = None
         self.detector = None
@@ -60,6 +63,9 @@ class AutoLeitura:
         if dig_weights and dig_weights.exists():          # sem o YOLO de dígitos, usa só a CRNN
             from .digits import DigitReader
             self.digit_reader = DigitReader(dig_weights)
+        self.segunda = None
+        if segunda_crnn and segunda_crnn.exists():        # água: segunda CRNN no lugar do YOLO de dígitos
+            self.segunda = Recognizer(segunda_crnn, nos_dois_sentidos=nos_dois_sentidos)
         # Os modelos são compartilhados por todos os usuários do app, e a inferência do Ultralytics
         # não é garantida para chamadas simultâneas na mesma instância: uma leitura por vez.
         self._trava = threading.Lock()
@@ -90,7 +96,11 @@ class AutoLeitura:
         if self.digit_reader is not None:
             yolo = self.digit_reader.read(crop)
             leitores["YOLO de dígitos"] = yolo[0]
-            text, rec_conf, digit_confs = combine(crnn, yolo)
+            text, rec_conf, digit_confs = combine(crnn, yolo, self.digitos)
+        elif self.segunda is not None:
+            outra = self.segunda.read(crop)
+            leitores["CRNN 2"] = outra[0]
+            text, rec_conf, digit_confs = combine(outra, crnn, self.digitos)
         else:
             text, rec_conf, digit_confs = crnn
 

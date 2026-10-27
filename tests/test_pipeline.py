@@ -25,6 +25,14 @@ def test_combinacao_yolo_incompleto_usa_a_crnn():
     assert texto == "01234" and conf < 0.6
 
 
+def test_combinacao_na_agua_aceita_6_digitos():
+    # a principal leu 4 dígitos (inválido na água) e a segunda leu 6: fica a de tamanho válido
+    texto, _, _ = combine(("012345", 0.8, [0.9] * 6), ("0123", 0.9, [0.9] * 4), digitos=(5, 6))
+    assert texto == "012345"
+    texto, conf, _ = combine(("012345", 0.8, [0.9] * 6), ("012345", 0.7, [0.9] * 6), digitos=(5, 6))
+    assert texto == "012345" and conf == pytest.approx(1 - 0.2 * 0.3)
+
+
 def test_combinacao_sem_leitura():
     texto, conf, _ = combine(("", 0.0, []), ("", 0.0, []))
     assert texto == "" and conf == 0
@@ -89,6 +97,8 @@ def test_pipeline_de_agua_le_nos_dois_sentidos_e_aceita_6_digitos():
     sistema_agua = para_tipo("agua")
     assert sistema_agua.digitos == (5, 6) and sistema_agua.digit_reader is None
     assert sistema_agua.recognizer.nos_dois_sentidos
+    if config.AGUA_REC2_WEIGHTS.exists():               # segunda opinião, também nos dois sentidos
+        assert sistema_agua.segunda is not None and sistema_agua.segunda.nos_dois_sentidos
     res = sistema_agua.read(np.zeros((480, 640, 3), np.uint8))
     assert set(res) >= {"reading", "confidence", "warning"}
 

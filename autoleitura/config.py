@@ -23,6 +23,7 @@ REC_WEIGHTS = WEIGHTS_DIR / "recognizer.pt"
 DIG_WEIGHTS = WEIGHTS_DIR / "digits.pt"
 AGUA_SEG_WEIGHTS = WEIGHTS_DIR / "segmentador_agua.pt"
 AGUA_REC_WEIGHTS = WEIGHTS_DIR / "recognizer_agua.pt"
+AGUA_REC2_WEIGHTS = WEIGHTS_DIR / "recognizer_agua_2.pt"     # segunda opinião (opcional)
 
 # AUTOLEITURA_DB permite usar outro arquivo (ex.: um banco de demonstração para a apresentação)
 DB_PATH = Path(os.environ.get("AUTOLEITURA_DB", ROOT / "autoleitura.db"))
