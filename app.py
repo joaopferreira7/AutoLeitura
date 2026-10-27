@@ -46,12 +46,13 @@ def get_db():
 
 
 @st.cache_resource(show_spinner="Carregando os modelos...")
-def get_system():
-    from autoleitura.pipeline import AutoLeitura
-    return AutoLeitura()
+def get_system(tipo):
+    """Um pipeline por tipo de medidor: energia (detector + YOLO de dígitos + CRNN) e água (detector + CRNN)."""
+    from autoleitura.pipeline import para_tipo
+    return para_tipo(tipo)
 
 
-@st.cache_resource(show_spinner="Baixando os modelos treinados (só na primeira vez, ~55 MB)...")
+@st.cache_resource(show_spinner="Baixando os modelos treinados (só na primeira vez)...")
 def baixar_pesos():
     try:
         pesos.baixar(progresso=lambda _: None)
@@ -60,11 +61,11 @@ def baixar_pesos():
         return str(e)
 
 
-def modelos_prontos():
+def modelos_prontos(tipo):
     erro = baixar_pesos() if pesos.faltando() else None
     if erro:
         st.error(f"Não foi possível baixar os modelos: {erro}")
-    return config.DET_WEIGHTS.exists() and config.REC_WEIGHTS.exists()
+    return pesos.prontos(tipo)
 
 
 def brl(v):
@@ -112,11 +113,10 @@ def page_nova_leitura():
     un = consumo.UNIDADE[medidor["tipo"]]
     con = get_db()
 
-    if not modelos_prontos():
-        st.error(f"Os modelos ainda não foram treinados. Coloque `detector.pt` e `recognizer.pt` em `{config.WEIGHTS_DIR}`.")
+    tipo = medidor["tipo"]
+    if not modelos_prontos(tipo):
+        st.error(f"Os modelos de {TIPOS[tipo]} não estão disponíveis em `{config.WEIGHTS_DIR}`.")
         return
-    if medidor["tipo"] == "agua":
-        st.caption("ℹ️ O modelo foi treinado com medidores de energia (UFPR-AMR); em medidores de água, confira a leitura.")
 
     referencia = st.selectbox("Mês de referência", meses(), format_func=fmt_mes)
 
@@ -132,8 +132,9 @@ def page_nova_leitura():
         return
 
     # O Streamlit reexecuta o script a cada interação; só roda o modelo de novo se a foto mudou.
+    # A chave inclui o tipo: a mesma foto lida por outro medidor (de outro tipo) usa outros modelos.
     dados = foto.getvalue()
-    chave = hashlib.md5(dados).hexdigest()
+    chave = hashlib.md5(dados).hexdigest() + tipo
     if st.session_state.get("foto_chave") != chave:
         try:
             img = load_image(dados)
@@ -141,7 +142,7 @@ def page_nova_leitura():
             st.error(str(e))
             return
         with st.spinner("Lendo o medidor..."):
-            res = get_system().read(img)
+            res = get_system(tipo).read(img)
         from autoleitura.pipeline import draw_result
         st.session_state.update(foto_chave=chave, res=res,
                                 anotada=cv2.cvtColor(draw_result(img, res), cv2.COLOR_BGR2RGB))
@@ -166,7 +167,7 @@ def page_nova_leitura():
         st.caption(f"Detecção do contador: {res['det_confidence'] * 100:.0f}% · Tempo: {res['time_ms']:.0f} ms")
 
     valor = st.text_input("Leitura (corrija se algum número estiver errado)", value=res["reading"],
-                          max_chars=config.NUM_DIGITS, key=f"valor_{chave}").strip()
+                          max_chars=max(config.DIGITOS[tipo]), key=f"valor_{chave}").strip()
 
     hist = consumo.historico(medidor, db.list_readings(con, medidor["id"]))
     anteriores = [h for h in hist if h["referencia"] < referencia]
@@ -292,11 +293,12 @@ def page_imoveis():
                                      help="Valor de exemplo: confira na sua conta (valor total ÷ consumo).")
             taxa = st.number_input("Taxa fixa mensal (R$)", min_value=0.0, value=taxa_ex, step=1.0,
                                    help="Iluminação pública, taxa mínima, esgoto etc.")
-            inicial = st.text_input("Leitura atual do medidor (opcional)", max_chars=config.NUM_DIGITS,
+            inicial = st.text_input("Leitura atual do medidor (opcional)", max_chars=max(config.DIGITOS[tipo]),
                                     help="Se preencher, o consumo já é calculado a partir da primeira foto.")
             if st.form_submit_button("Cadastrar medidor", type="primary"):
-                if inicial and not inicial.isdigit():
-                    st.error("A leitura atual deve conter só números.")
+                if inicial and (not inicial.isdigit() or len(inicial) not in config.DIGITOS[tipo]):
+                    st.error("A leitura atual deve ter só números, com "
+                             + " ou ".join(str(n) for n in config.DIGITOS[tipo]) + " dígitos.")
                 else:
                     db.add_medidor(con, imovel_id, tipo, descricao.strip() or None, tarifa, taxa, inicial or None)
                     st.rerun()

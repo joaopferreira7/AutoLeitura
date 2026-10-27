@@ -5,37 +5,42 @@
 
 Exemplo:
   curl -F "foto=@medidor.jpg" http://localhost:8000/leitura
+  curl -F "foto=@hidrometro.jpg" "http://localhost:8000/leitura?tipo=agua"
 """
 from functools import lru_cache
+from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
-from autoleitura import config, consumo, db
+from autoleitura import consumo, db, pesos
 from autoleitura.preprocess import load_image
 
 app = FastAPI(title="AutoLeitura API", version="1.0",
               description="Leitura automática de medidores de água e energia por visão computacional.")
 
 
-@lru_cache(maxsize=1)
-def get_system():
-    from autoleitura.pipeline import AutoLeitura
-    return AutoLeitura()
+@lru_cache(maxsize=2)
+def get_system(tipo):
+    from autoleitura.pipeline import para_tipo
+    return para_tipo(tipo)
 
 
 @app.get("/saude")
 def saude():
-    return {"status": "ok", "modelos_prontos": config.DET_WEIGHTS.exists() and config.REC_WEIGHTS.exists()}
+    return {"status": "ok", "modelos_prontos": {t: pesos.prontos(t) for t in ("energia", "agua")}}
 
 
 @app.post("/leitura")
-async def ler(foto: UploadFile = File(..., description="Foto do medidor (JPG/PNG)")):
+async def ler(foto: UploadFile = File(..., description="Foto do medidor (JPG/PNG)"),
+              tipo: Literal["energia", "agua"] = Query("energia", description="Tipo de medidor")):
     """Lê o contador da foto e devolve o valor com o índice de confiança."""
+    if not pesos.prontos(tipo):
+        raise HTTPException(503, f"Modelos de {tipo} indisponíveis.")
     try:
         img = load_image(await foto.read())
     except ValueError:
         raise HTTPException(400, "Arquivo não é uma imagem válida.")
-    res = get_system().read(img)
+    res = get_system(tipo).read(img)
     if res["reading"] is None:
         raise HTTPException(422, res["warning"])
     return {
