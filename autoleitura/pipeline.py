@@ -34,10 +34,28 @@ def combine(crnn, yolo):
     return text, conf, digit_confs
 
 
+def para_tipo(tipo):
+    """O pipeline com os modelos do tipo de medidor ('energia' ou 'agua')."""
+    if tipo == "agua":
+        # o dataset de água não tem a caixa de cada dígito (sem YOLO de dígitos); a janela é segmentada
+        # e endireitada, e a CRNN lê nos dois sentidos (hidrômetros fotografados de cabeça para baixo)
+        return AutoLeitura(None, config.AGUA_REC_WEIGHTS, None, digitos=config.DIGITOS["agua"],
+                           nos_dois_sentidos=True, seg_weights=config.AGUA_SEG_WEIGHTS)
+    return AutoLeitura(config.DET_WEIGHTS, config.REC_WEIGHTS, config.DIG_WEIGHTS, digitos=config.DIGITOS["energia"])
+
+
 class AutoLeitura:
-    def __init__(self, det_weights=config.DET_WEIGHTS, rec_weights=config.REC_WEIGHTS, dig_weights=config.DIG_WEIGHTS):
-        self.detector = CounterDetector(det_weights)
-        self.recognizer = Recognizer(rec_weights)
+    def __init__(self, det_weights=config.DET_WEIGHTS, rec_weights=config.REC_WEIGHTS, dig_weights=config.DIG_WEIGHTS,
+                 digitos=(config.NUM_DIGITS,), nos_dois_sentidos=False, seg_weights=None):
+        self.digitos = digitos
+        self.segmenter = None
+        self.detector = None
+        if seg_weights is not None:                      # água: segmenta e endireita a janela dos dígitos
+            from .segmenter import WindowSegmenter
+            self.segmenter = WindowSegmenter(seg_weights)
+        else:                                            # energia: caixa reta do contador
+            self.detector = CounterDetector(det_weights)
+        self.recognizer = Recognizer(rec_weights, nos_dois_sentidos=nos_dois_sentidos)
         self.digit_reader = None
         if dig_weights and dig_weights.exists():          # sem o YOLO de dígitos, usa só a CRNN
             from .digits import DigitReader
@@ -54,10 +72,14 @@ class AutoLeitura:
     def _read(self, img):
         t0 = time.perf_counter()
         small, scale = limit_size(img)
-        box, det_conf = self.detector.detect(small)
-
+        if self.segmenter is not None:
+            crop, det_conf, box = self.segmenter.segment(small)
+        else:
+            box, det_conf = self.detector.detect(small)
+            crop = None
         box = tuple(v / scale for v in box) if box is not None else None   # volta para a escala original
-        crop = crop_box(img, box) if box is not None else None
+        if self.detector is not None and box is not None:
+            crop = crop_box(img, box)
         if crop is None or min(crop.shape[:2]) < 4:          # nada achado, ou caixa degenerada na borda da foto
             return {"reading": None, "confidence": 0.0, "det_confidence": det_conf if box else 0.0, "bbox": None,
                     "digit_confidences": [], "crop": None, "leitores": {},
@@ -76,8 +98,9 @@ class AutoLeitura:
         # leituras com quantidade de dígitos inesperada são sinalizadas.
         confidence = det_conf * rec_conf
         warning = None
-        if len(text) != config.NUM_DIGITS:
-            warning = f"Foram lidos {len(text)} dígitos (esperado {config.NUM_DIGITS}). Confira a leitura."
+        if len(text) not in self.digitos:
+            esperado = " ou ".join(str(n) for n in self.digitos)
+            warning = f"Foram lidos {len(text)} dígitos (esperado {esperado}). Confira a leitura."
             confidence *= 0.5
         elif len(set(leitores.values())) > 1:
             warning = ("Os dois leitores discordaram (" + ", ".join(f"{k}: {v or '—'}" for k, v in leitores.items())
