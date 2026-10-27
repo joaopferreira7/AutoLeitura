@@ -61,6 +61,12 @@ def connect(path=None):
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.execute("PRAGMA journal_mode = WAL")
+    migrar(con)
+    return con
+
+
+def migrar(con):
+    """Cria as tabelas que faltarem e adiciona as colunas novas a bancos de versões antigas."""
     con.executescript(SCHEMA)
     for tabela, colunas in _NOVAS_COLUNAS.items():
         existentes = {r["name"] for r in con.execute(f"PRAGMA table_info({tabela})")}
@@ -68,7 +74,6 @@ def connect(path=None):
             if nome not in existentes:
                 con.execute(f"ALTER TABLE {tabela} ADD COLUMN {nome} {tipo}")
     con.commit()
-    return con
 
 
 def _now():
