@@ -35,7 +35,10 @@ Funciona no navegador do **computador e do celular**, sem instalar nada:
      mês repetido.
 4. **Consumo**: consumo do mês, média, conta estimada, gráfico mês a mês, histórico em CSV e o recorte de cada
    leitura salvo para conferência.
-5. **Desempenho do modelo**: métricas do conjunto de teste e a taxa de leituras que o usuário não precisou corrigir.
+5. **Desempenho do modelo**: métricas do conjunto de teste e a taxa de leituras que o usuário não precisou corrigir;
+   baixa um .zip com as leituras confirmadas (recorte + valor) para re-treinar os modelos com fotos reais
+   (`python scripts/importar_correcoes.py autoleitura_correcoes.zip` e depois `train_recognizer.py`).
+6. **Backup dos dados** (em *Imóveis e medidores*): baixa o banco inteiro (.db) e restaura depois.
 
 A **API REST** (`api.py`) mostra como uma concessionária integraria a leitura: `POST /leitura` com a foto
 (e `?tipo=agua` para hidrômetros) devolve o valor e a confiança em JSON; `GET /medidores/{id}/consumo` devolve o histórico.
@@ -80,7 +83,7 @@ A **API REST** (`api.py`) mostra como uma concessionária integraria a leitura: 
 3. Ao final, baixe `MeuDrive/AutoLeitura/weights/detector.pt` e `recognizer.pt` para a pasta `weights/` local.
 
 ### 2. Rodar o app (computador e celular)
-Os pesos treinados ficam no [Release `modelos-v2`](https://github.com/joaopferreira7/AutoLeitura/releases/tag/modelos-v2)
+Os pesos treinados ficam no [Release `modelos-v3`](https://github.com/joaopferreira7/AutoLeitura/releases/tag/modelos-v3)
 e o app os baixa sozinho para `weights/` na primeira execução (~88 MB, SHA-256 conferido).
 ```bash
 pip install -r requirements.txt
@@ -105,7 +108,11 @@ O app em https://autoleitura.streamlit.app é publicado direto deste repositóri
 Python 3.12) e se atualiza sozinho a cada push. Na nuvem:
 - o `requirements.txt` instala o PyTorch só de CPU e o `packages.txt` instala as bibliotecas de sistema do OpenCV;
 - os pesos são baixados do Release na primeira execução;
-- o banco começa com os imóveis de demonstração e é apagado quando o app reinicia (não guarde dados reais lá);
+- o banco começa com os imóveis de demonstração e é apagado quando o app reinicia: baixe um backup em
+  *Imóveis e medidores* → *Backup dos dados* e restaure depois (não guarde dados reais lá);
+- o workflow `manter_acordado.yml` abre o app num navegador a cada 6 horas (e clica em acordar se ele tiver dormido);
+  antes da apresentação, rode-o na mão em *Actions* → *Manter o app acordado* → *Run workflow*;
+- os pesos no disco são conferidos pelo SHA-256 a cada início e trocados se forem de um Release anterior;
 - **depois de um push que mude arquivos de `autoleitura/`**, abra o app, clique em *Manage app* → ⋮ → *Reboot app*:
   a nuvem recarrega o `app.py` mas pode manter a versão antiga dos módulos em memória (erro `AttributeError`).
 
@@ -126,7 +133,8 @@ python evaluate.py --errors erros_teste.csv
 # água (dataset de hidrômetros do Dryad, extraído em data/raw/agua)
 python scripts/prepare_agua.py --input data/raw/agua/Word-Wheel_Water_Meter_Dataset
 python train_detector.py --tipo agua --epochs 25 --fracao 0.15 --device 0
-python train_recognizer.py --tipo agua --epochs 40 --workers 6
+python train_recognizer.py --tipo agua --epochs 40 --workers 6 --peso-6 3 --semente 2
+python train_recognizer.py --tipo agua --epochs 40 --workers 6 --saida weights/recognizer_agua_2.pt   # segunda opinião
 python evaluate.py --tipo agua
 ```
 
@@ -188,23 +196,25 @@ referência no UFPR-AMR relatam de 94% a 97%.
 ## Resultados (hidrômetros, dataset word-wheel do Dryad)
 
 Treino local numa RTX 3060: segmentador YOLOv8s-seg (25 épocas, cada uma com 15% das 29.437 fotos de treino) e
-CRNN (40 épocas). O conjunto de teste oficial do dataset foi usado só no final.
+duas CRNNs (40 épocas cada). A principal foi treinada sorteando os contadores de 6 dígitos 3× mais (eram poucos);
+a segunda, sem esse reforço, dá a segunda opinião com a mesma regra da energia. Entre três CRNNs treinadas, o par
+foi escolhido no conjunto de **validação**; o teste oficial do dataset foi usado uma vez, no final.
 
 | Métrica (teste) | Resultado |
 |---|---|
 | Segmentação da janela dos dígitos, mAP@0.5 da máscara (13.391 fotos) | **99,5%** |
-| CRNN, leitura completa nos recortes de teste, lendo nos dois sentidos (2.400) | **96,3%** |
-| — contadores de 5 dígitos (2.000) | 99,4% |
-| — contadores de 6 dígitos (400) | 80,8% |
-| CRNN, acurácia por dígito | 97,4% |
-| Recortes aceitos direto (confiança ≥ 60%) | 94,9%, com 97,7% de acerto |
-| Pipeline completo: leituras iguais às da janela anotada à mão (1.000 fotos) | **91,1%** |
+| Leitura completa nos recortes de teste, duas CRNNs lendo nos dois sentidos (2.400) | **97,4%** (antes 96,3%) |
+| — contadores de 5 dígitos (2.000) | 99,2% |
+| — contadores de 6 dígitos (400) | **88,5%** (antes 80,8%) |
+| Recortes aceitos direto (confiança ≥ 60%) | 96,7%, com **98,6%** de acerto (antes 94,9% e 97,7%) |
+| Pipeline completo: leituras iguais às da janela anotada à mão (1.000 fotos) | **93,0%** (antes 91,1%) |
 
 O dataset não liga as fotos às leituras, então a acurácia de ponta a ponta na água **não pode ser medida
 exatamente**: a última linha é uma aproximação (o quanto o segmentador muda a leitura em relação a um recorte
 perfeito). A primeira versão, com um detector de caixa reta em vez do segmentador, fazia a CRNN ler mal
 (confianças de 1% a 21%): a janela saía torta e com sobra, diferente dos recortes de treino. Os contadores de
-6 dígitos têm menos exemplos de treino (2.500 contra 11.900), o que explica a acurácia menor.
+6 dígitos têm menos exemplos de treino (2.500 contra 11.900); sorteá-los 3× mais no treino levou a acurácia
+deles de 80,8% para 88,5%.
 
 ## Testes
 
@@ -215,10 +225,11 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-74 testes em `tests/`: regras de consumo e alertas (inclusive contadores de 6 dígitos), banco (gravações
+79 testes em `tests/`: regras de consumo e alertas (inclusive contadores de 6 dígitos), banco (gravações
 simultâneas de vários usuários, migração de bancos antigos), pré-processamento (fotos de celular giradas pelo
 EXIF, arquivos inválidos, endireitamento da janela), preparação dos dados em pastas temporárias, verificação do
-SHA-256 dos pesos, regra de combinação dos leitores, fotos sem medidor, leituras simultâneas, pipeline de água,
+SHA-256 dos pesos (e troca de pesos de versões anteriores), backup e restauração do banco, exportação e importação
+das correções para o re-treino, regra de combinação dos leitores, fotos sem medidor, leituras simultâneas, pipeline de água,
 API e as quatro telas do app. Os testes nunca tocam em `data/` nem no banco real. Quem tem os datasets em
 `data/` roda também testes de regressão com fotos reais (energia: 30 fotos, mínimo de 85%; água: 100 recortes,
 mínimo de 80%). No GitHub, os testes rodam a cada push e toda segunda-feira, para avisar se uma
@@ -228,15 +239,15 @@ atualização de biblioteca quebrou algo.
 
 | Risco | Probabilidade | O que acontece | Mitigação atual / o que fazer |
 |---|---|---|---|
-| Fotos fora do padrão do UFPR-AMR (outros modelos de medidor, sol forte, vidro sujo, foto de longe) | Alta | Acurácia menor que os 93,4% medidos | A confiança cai quando os leitores discordam e o app pede conferência; medir com fotos reais de usuários |
-| Hidrômetros brasileiros diferentes dos chineses do dataset | Média | Marcas, mostradores e caixas diferentes podem reduzir a acurácia da água | Mesma família de contador de roletes; testar com fotos de hidrômetros locais e incluí-las no treino |
-| Acurácia real da água desconhecida | Certa | O dataset não liga fotos e leituras: só há a aproximação de 91,1% | Montar um pequeno teste próprio (fotos + leitura conferida) |
-| Contadores de água de 6 dígitos | Média | 80,8% contra 99,4% nos de 5 dígitos | Mais exemplos de 6 dígitos; o app pede conferência quando a confiança é baixa |
-| Água sem segunda opinião | Média | Sem caixas por dígito no dataset, não há YOLO de dígitos para conferir a CRNN | A confiança da CRNN ainda separa bem (97,7% de acerto nas aceitas); anotar dígitos para treinar o segundo leitor |
+| Fotos fora do padrão do UFPR-AMR (outros modelos de medidor, sol forte, vidro sujo, foto de longe) | Alta | Acurácia menor que os 93,4% medidos | A confiança cai quando os leitores discordam e o app pede conferência; as leituras confirmadas no app viram dados de treino (`importar_correcoes.py`) |
+| Hidrômetros brasileiros diferentes dos chineses do dataset | Média | Marcas, mostradores e caixas diferentes podem reduzir a acurácia da água | Mesma família de contador de roletes; fotografar hidrômetros locais no app e importar as leituras confirmadas no treino |
+| Acurácia real da água desconhecida | Certa | O dataset não liga fotos e leituras: só há a aproximação de 93,0% | Montar um pequeno teste próprio (fotos + leitura conferida) |
+| Contadores de água de 6 dígitos | Média | 88,5% contra 99,2% nos de 5 dígitos (eram 80,8% antes do reforço no treino) | O app pede conferência quando a confiança é baixa; incluir fotos reais de 6 dígitos no treino |
+| Água com só um leitor | Resolvido | — | Duas CRNNs: quando concordam (96,7% dos recortes) a leitura está certa em 98,6% dos casos |
 | Erro com confiança alta (os dois leitores erram igual) | Baixa (9 de 800 no teste) | Leitura errada aceita sem conferência | Validação contra o mês anterior e a média; usuário pode corrigir no histórico |
 | Atualização de bibliotecas (Streamlit, Ultralytics, PyTorch) | Média | App publicado para de abrir ou muda de comportamento | Streamlit e Ultralytics com versão fixa; testes semanais no GitHub |
-| Nuvem gratuita do Streamlit | Média | App "dorme" após dias sem uso; banco apagado a cada reinício; CPU e memória limitadas | Abrir o link antes da apresentação; não guardar dados reais; plano B com `rodar_app.py --publico` |
-| Release `modelos-v2` apagado, renomeado ou repositório privado | Baixa | O app não consegue baixar os modelos | Não apagar o Release; pesos conferidos por SHA-256 |
+| Nuvem gratuita do Streamlit | Média | App "dorme" sem visitas; banco apagado a cada reinício; CPU e memória limitadas | Workflow que visita o app a cada 6 h; backup e restauração do banco no app; plano B com `rodar_app.py --publico` |
+| Release `modelos-v3` apagado, renomeado ou repositório privado | Baixa | O app não consegue baixar os modelos | Não apagar o Release; pesos conferidos por SHA-256 |
 | Muitos usuários ao mesmo tempo | Baixa (trabalho acadêmico) | Leituras em fila (uma por vez) e SQLite no limite | Para produção: banco hospedado (PostgreSQL) e mais instâncias |
 | Rolete do último dígito em transição | Alta (metade dos erros) | Último dígito errado em 1 unidade | Conferência quando há discordância; mais exemplos de transição no treino |
 | Licença do UFPR-AMR | Certa | Uso só acadêmico e não comercial, inclusive dos modelos treinados | Não usar comercialmente; para produto, treinar com dados próprios |
