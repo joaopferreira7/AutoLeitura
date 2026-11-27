@@ -7,9 +7,10 @@ Integrantes: Gabriel Quirino Bressanin · Guilherme Barros Oliveira · Heitor Lu
 
 **App no ar:** https://autoleitura.streamlit.app (abre no computador e no celular)
 
-**Vídeo de demonstração:** enviado junto com a entrega do projeto (`AutoLeitura_demo.mp4`, ~1 min 40 s): o app
-lendo um medidor de energia, um hidrômetro e uma foto difícil (que vai para conferência), e as telas de consumo e
-de desempenho do modelo. Não fica no repositório porque mostra fotos do UFPR-AMR, de licença só acadêmica.
+**Vídeo de demonstração (2 min 32 s):** enviado junto com a entrega do projeto (`AutoLeitura_demo.mp4`):
+a problemática, cada etapa do OpenCV com as imagens reais que ela produz (energia e hidrômetro) e o app lendo um
+medidor de energia, um hidrômetro e uma foto difícil (que vai para conferência), além das telas de consumo e de
+desempenho do modelo. Não fica no repositório porque mostra fotos do UFPR-AMR, de licença só acadêmica.
 
 ## Motivação e problema estudado
 
