@@ -117,3 +117,22 @@ def test_regressao_crnn_de_agua_em_recortes_reais():
     acertos = sum(rec.read(cv2.imread(str(config.AGUA_REC_DIR / "images" / r["arquivo"])))[0] == r["leitura"]
                   for r in rows)
     assert acertos / len(rows) >= 0.80, f"só {acertos}/{len(rows)} leituras certas"
+
+
+@agua
+@pytest.mark.skipif(not TESTE_AGUA.exists(), reason="dataset de água ausente em data/agua_rec")
+def test_crnn_de_agua_informa_o_sentido_da_leitura():
+    """O app mostra o recorte de pé: girar o recorte 180° deve inverter o sentido informado, com a mesma leitura."""
+    import csv
+
+    import cv2
+
+    from autoleitura.recognizer import Recognizer
+    rec = Recognizer(config.AGUA_REC_WEIGHTS, nos_dois_sentidos=True)
+    rows = [r for r in csv.DictReader(open(TESTE_AGUA, encoding="utf-8")) if r["split"] == "test"][::120][:20]
+    for r in rows:
+        recorte = cv2.imread(str(config.AGUA_REC_DIR / "images" / r["arquivo"]))
+        texto, _, _, girado = rec.read(recorte, com_sentido=True)
+        texto_2, _, _, girado_2 = rec.read(cv2.rotate(recorte, cv2.ROTATE_180), com_sentido=True)
+        assert texto == texto_2 and girado != girado_2
+        assert rec.read(recorte) == rec.read(recorte, com_sentido=True)[:3]

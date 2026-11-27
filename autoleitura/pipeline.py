@@ -91,18 +91,25 @@ class AutoLeitura:
                     "digit_confidences": [], "crop": None, "leitores": {},
                     "time_ms": (time.perf_counter() - t0) * 1000,
                     "warning": "Contador não encontrado na imagem."}
-        crnn = self.recognizer.read(crop)
+        *crnn, girado = self.recognizer.read(crop, com_sentido=True)
+        crnn = tuple(crnn)
         leitores = {"CRNN": crnn[0]}
         if self.digit_reader is not None:
             yolo = self.digit_reader.read(crop)
             leitores["YOLO de dígitos"] = yolo[0]
             text, rec_conf, digit_confs = combine(crnn, yolo, self.digitos)
         elif self.segunda is not None:
-            outra = self.segunda.read(crop)
+            *outra, girado_2 = self.segunda.read(crop, com_sentido=True)
+            outra = tuple(outra)
             leitores["CRNN 2"] = outra[0]
             text, rec_conf, digit_confs = combine(outra, crnn, self.digitos)
+            if text != crnn[0]:                 # a leitura final veio da segunda CRNN: vale o sentido dela
+                girado = girado_2
         else:
             text, rec_conf, digit_confs = crnn
+
+        if girado:                              # hidrômetro de cabeça para baixo: devolve o recorte de pé
+            crop = cv2.rotate(crop, cv2.ROTATE_180)
 
         # Pós-processamento: confiança final combina detecção e reconhecimento;
         # leituras com quantidade de dígitos inesperada são sinalizadas.

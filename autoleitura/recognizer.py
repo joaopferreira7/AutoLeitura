@@ -76,13 +76,14 @@ class Recognizer:
         self.nos_dois_sentidos = nos_dois_sentidos
 
     @torch.no_grad()
-    def read(self, crop):
+    def read(self, crop, com_sentido=False):
+        """com_sentido=True devolve também se a leitura escolhida veio do recorte girado 180°."""
         recortes = [crop, cv2.rotate(crop, cv2.ROTATE_180)] if self.nos_dois_sentidos else [crop]
         x = torch.from_numpy(np.stack([to_recognizer_input(prepare_crop(c)) for c in recortes])).to(self.device)
-        melhor = None
-        for log_probs in self.model(x).log_softmax(2).cpu():
+        melhor, girado = None, False
+        for i, log_probs in enumerate(self.model(x).log_softmax(2).cpu()):
             text, confs = ctc_greedy_decode(log_probs)
             conf = float(np.prod(confs)) if confs else 0.0
             if melhor is None or conf > melhor[1]:
-                melhor = (text, conf, confs)
-        return melhor
+                melhor, girado = (text, conf, confs), i == 1
+        return (*melhor, girado) if com_sentido else melhor
