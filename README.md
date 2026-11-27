@@ -7,6 +7,45 @@ Integrantes: Gabriel Quirino Bressanin · Guilherme Barros Oliveira · Heitor Lu
 
 **App no ar:** https://autoleitura.streamlit.app (abre no computador e no celular)
 
+**Vídeo de demonstração:** enviado junto com a entrega do projeto (`AutoLeitura_demo.mp4`, ~1 min 40 s): o app
+lendo um medidor de energia, um hidrômetro e uma foto difícil (que vai para conferência), e as telas de consumo e
+de desempenho do modelo. Não fica no repositório porque mostra fotos do UFPR-AMR, de licença só acadêmica.
+
+## Motivação e problema estudado
+
+Todo mês, mais de 150 milhões de medidores precisam ser lidos no Brasil: cerca de 94 milhões de energia (EPE) e
+64 milhões de ligações de água (SNIS 2022). Só 5% a 6% dos medidores de energia são inteligentes, e a troca dos
+outros 60 a 70 milhões deve levar de 8 a 10 anos e R$ 25 a 35 bilhões. Até lá, a leitura depende de um
+leiturista indo de casa em casa ou da **autoleitura**, em que o próprio cliente envia a foto e digita os
+números (como na Cemig, pelo app ou WhatsApp). Os dois caminhos erram e custam: na pandemia de 2020, com as
+leituras presenciais suspensas, as contas foram cobradas pela média e muitos consumidores receberam cobranças
+acumuladas depois (Aneel, REN 878/2020; Idec).
+
+**Problema estudado:** ler o valor do medidor a partir de uma foto de celular comum, tirada sem padrão
+(ângulo, luz, reflexo, hidrômetro de cabeça para baixo), com uma **confiança** que diga quando a leitura pode
+ser aceita sozinha e quando precisa de conferência humana. É um problema de visão computacional em duas etapas:
+**detecção/segmentação** do contador na foto e **reconhecimento** da sequência de dígitos, com o caso difícil
+do rolete do último dígito, que aparece no meio da troca entre dois números.
+
+## Tecnologias
+
+| Para quê | Tecnologia |
+|---|---|
+| Linguagem | Python 3 |
+| Pré-processamento (EXIF, redimensionamento, endireitamento por perspectiva, recortes) | OpenCV, NumPy, Pillow |
+| Detecção do contador (energia) e segmentação da janela dos dígitos (água) | YOLOv8s e YOLOv8s-seg (Ultralytics) |
+| Leitura dos dígitos | CRNN com perda CTC (PyTorch) + YOLOv8 de dígitos 0–9; na água, duas CRNNs |
+| Treino | PyTorch com GPU (RTX 3060 local) e notebook do Google Colab |
+| App web (computador e celular) | Streamlit, publicado no Streamlit Community Cloud |
+| API REST para integração com concessionárias | FastAPI |
+| Banco de dados | SQLite |
+| Tabelas, histórico e gráficos | pandas e os gráficos do Streamlit |
+| Testes e automação | pytest, GitHub Actions (testes a cada push e visita ao app a cada 6 h com Playwright) |
+| Distribuição dos modelos | GitHub Releases, com verificação SHA-256 |
+| Datasets | UFPR-AMR (2.000 fotos de medidores de energia) e Word-Wheel Water Meter (Dryad, hidrômetros) |
+
+## Como funciona
+
 A foto do medidor passa por um pipeline de dois estágios e sai como leitura numérica com índice de confiança.
 Cada tipo de medidor tem os seus modelos:
 
@@ -225,7 +264,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-79 testes em `tests/`: regras de consumo e alertas (inclusive contadores de 6 dígitos), banco (gravações
+80 testes em `tests/`: regras de consumo e alertas (inclusive contadores de 6 dígitos), banco (gravações
 simultâneas de vários usuários, migração de bancos antigos), pré-processamento (fotos de celular giradas pelo
 EXIF, arquivos inválidos, endireitamento da janela), preparação dos dados em pastas temporárias, verificação do
 SHA-256 dos pesos (e troca de pesos de versões anteriores), backup e restauração do banco, exportação e importação
